@@ -422,33 +422,38 @@ QWidget* MainWindow::buildCreatePage() {
     auto* hmclLabel = new QLabel("HMCL 版本（自动最新）", card);
     form->addWidget(hmclLabel);
     createHmcl_ = new QComboBox(card);
-    for (const char* version : {"自动使用最新 HMCL", "3.16.4", "3.16.3", "3.16.2",
-                                "3.16.1", "3.16.0", "3.15.2", "3.15.1", "3.14.1"}) {
-        if (QString(version).startsWith("自动")) {
-            createHmcl_->addItem(version, "");
-        } else {
-            createHmcl_->addItem(QString("HMCL ") + version, version);
-        }
-    }
+    createHmcl_->addItem("正在加载 HMCL 版本…");
+    createHmcl_->setEnabled(false);
     form->addWidget(createHmcl_);
+    hmclBusy_ = new QProgressBar(card);
+    hmclBusy_->setRange(0, 0);
+    hmclBusy_->setTextVisible(false);
+    hmclBusy_->setFixedHeight(4);
+    form->addWidget(hmclBusy_);
 
     auto* agentLabel = new QLabel("FLFHMCL 版本", card);
     form->addWidget(agentLabel);
     createAgent_ = new QComboBox(card);
+    createAgent_->addItem("正在加载 FLFHMCL 版本…");
+    createAgent_->setEnabled(false);
     form->addWidget(createAgent_);
-    createBusy_ = new QProgressBar(card);
-    createBusy_->setRange(0, 0);
-    createBusy_->setTextVisible(false);
-    createBusy_->setFixedHeight(4);
-    createBusy_->hide();
-    form->addWidget(createBusy_);
+    agentBusy_ = new QProgressBar(card);
+    agentBusy_->setRange(0, 0);
+    agentBusy_->setTextVisible(false);
+    agentBusy_->setFixedHeight(4);
+    form->addWidget(agentBusy_);
 
     auto* fabricLabel = new QLabel("Fabric Loader 版本", card);
     form->addWidget(fabricLabel);
     createFabric_ = new QComboBox(card);
-    createFabric_->addItem("自动（最新）", "");
+    createFabric_->addItem("正在加载 Fabric 版本…");
+    createFabric_->setEnabled(false);
     form->addWidget(createFabric_);
-
+    fabricBusy_ = new QProgressBar(card);
+    fabricBusy_->setRange(0, 0);
+    fabricBusy_->setTextVisible(false);
+    fabricBusy_->setFixedHeight(4);
+    form->addWidget(fabricBusy_);
     createIsolated_ = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", card);
     form->addWidget(createIsolated_);
 
@@ -836,69 +841,71 @@ void MainWindow::showToast(const QString& title, const QString& detail, bool err
 
 void MainWindow::createInstance() {
     showPage(5);
-    if (createAgent_) {
-        createAgent_->clear();
-        createAgent_->addItem("正在加载 FLFHMCL 版本…");
-        createAgent_->setEnabled(false);
-    }
-    if (createBusy_) {
-        createBusy_->show();
-    }
-    // 版本列表在后台获取，避免点击时卡顿
+
+    auto beginLoading = [](QComboBox* combo, QProgressBar* busy, const QString& text) {
+        if (combo) {
+            combo->clear();
+            combo->addItem(text);
+            combo->setEnabled(false);
+        }
+        if (busy) busy->show();
+    };
+    beginLoading(createAgent_, agentBusy_, "正在加载 FLFHMCL 版本…");
+    beginLoading(createHmcl_, hmclBusy_, "正在加载 HMCL 版本…");
+    beginLoading(createFabric_, fabricBusy_, "正在加载 Fabric 版本…");
+
     std::thread([this]() {
         std::string error;
         const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
         QStringList versions;
         QString latest;
         if (release.ok) {
-            for (const auto& item : release.versions) {
-                versions.append(qs(item.version));
-            }
+            for (const auto& item : release.versions) versions.append(qs(item.version));
             latest = qs(release.version);
         }
-        bool githubAvailable = false;
-        std::string hmclError;
-        const auto hmclVersions = fetchHmclVersions(&githubAvailable, &hmclError);
-        QStringList hmclList;
-        for (const auto& version : hmclVersions) {
-            hmclList.append(qs(version));
-        }
-        std::string fabricError;
-        const auto loaders = fetchFabricLoaders("1.21.1", &fabricError);
-        QStringList fabricVersions;
-        for (const auto& loader : loaders) {
-            fabricVersions.append(qs(loader));
-        }
-        QMetaObject::invokeMethod(this, [this, versions, latest, fabricVersions, hmclList, githubAvailable]() {
-            if (createBusy_) createBusy_->hide();
+        QMetaObject::invokeMethod(this, [this, versions, latest]() {
+            if (agentBusy_) agentBusy_->hide();
             if (!createAgent_) return;
             createAgent_->setEnabled(true);
             createAgent_->clear();
-            for (const QString& version : versions) {
-                createAgent_->addItem("FLFHMCL " + version, version);
-            }
-            if (versions.isEmpty()) {
-                createAgent_->addItem("FLFHMCL 2.1", "2.1");
-            }
+            for (const QString& version : versions) createAgent_->addItem("FLFHMCL " + version, version);
+            if (versions.isEmpty()) createAgent_->addItem("FLFHMCL 2.1", "2.1");
             const int index = createAgent_->findData(latest);
             if (index >= 0) createAgent_->setCurrentIndex(index);
-            if (createFabric_) {
-                createFabric_->clear();
-                createFabric_->addItem("自动（最新）", "");
-                for (const QString& loader : fabricVersions) {
-                    createFabric_->addItem("Fabric " + loader, loader);
-                }
+        }, Qt::QueuedConnection);
+    }).detach();
+
+    std::thread([this]() {
+        bool githubAvailable = false;
+        std::string error;
+        const auto versions = fetchHmclVersions(&githubAvailable, &error);
+        QStringList list;
+        for (const auto& version : versions) list.append(qs(version));
+        QMetaObject::invokeMethod(this, [this, list, githubAvailable]() {
+            if (hmclBusy_) hmclBusy_->hide();
+            if (!createHmcl_) return;
+            createHmcl_->setEnabled(true);
+            createHmcl_->clear();
+            for (const QString& version : list) createHmcl_->addItem("HMCL " + version, version);
+            if (list.isEmpty()) createHmcl_->addItem("HMCL 3.16.4", "3.16.4");
+            if (!githubAvailable) {
+                showToast("HMCL 版本列表不完整", "GitHub 不可用，仅显示官方最新版本", false);
             }
-            if (createHmcl_) {
-                createHmcl_->clear();
-                createHmcl_->addItem("自动使用最新 HMCL", "");
-                for (const QString& version : hmclList) {
-                    createHmcl_->addItem("HMCL " + version, version);
-                }
-                if (!githubAvailable) {
-                    showToast("HMCL 版本列表不完整", "GitHub 不可用，仅显示官方最新版本", false);
-                }
-            }
+        }, Qt::QueuedConnection);
+    }).detach();
+
+    std::thread([this]() {
+        std::string error;
+        const auto loaders = fetchFabricLoaders("1.21.1", &error);
+        QStringList list;
+        for (const auto& loader : loaders) list.append(qs(loader));
+        QMetaObject::invokeMethod(this, [this, list]() {
+            if (fabricBusy_) fabricBusy_->hide();
+            if (!createFabric_) return;
+            createFabric_->setEnabled(true);
+            createFabric_->clear();
+            for (const QString& loader : list) createFabric_->addItem("Fabric " + loader, loader);
+            if (list.isEmpty()) createFabric_->addItem("Fabric 0.19.5", "0.19.5");
         }, Qt::QueuedConnection);
     }).detach();
 }

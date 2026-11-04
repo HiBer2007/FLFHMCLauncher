@@ -82,7 +82,9 @@ private:
     QComboBox* createFabric_ = nullptr;
     QCheckBox* createIsolated_ = nullptr;
     QLabel* createError_ = nullptr;
-    QProgressBar* createBusy_ = nullptr;
+    QProgressBar* agentBusy_ = nullptr;
+    QProgressBar* hmclBusy_ = nullptr;
+    QProgressBar* fabricBusy_ = nullptr;
     QLabel* installTitle_ = nullptr;
     QLabel* installPercent_ = nullptr;
     QProgressBar* installBar_ = nullptr;
