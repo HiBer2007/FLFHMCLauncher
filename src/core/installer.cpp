@@ -174,6 +174,9 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
         {"com.google.errorprone", "error_prone_annotations", "2.23.0"},
         {"org.ow2.sat4j", "org.ow2.sat4j.core", "2.3.6"},
         {"org.ow2.sat4j", "org.ow2.sat4j.pb", "2.3.6"},
+        {"org.lwjgl", "lwjgl", "3.3.6"},
+        {"org.lwjgl", "lwjgl-glfw", "3.3.6"},
+        {"org.lwjgl", "lwjgl-opengl", "3.3.6"},
     };
 
     int index = 0;
@@ -245,6 +248,9 @@ bool writeMclhrManifest(const Instance& instance, std::string* error) {
         {"com.google.errorprone", "error_prone_annotations", "2.23.0"},
         {"org.ow2.sat4j", "org.ow2.sat4j.core", "2.3.6"},
         {"org.ow2.sat4j", "org.ow2.sat4j.pb", "2.3.6"},
+        {"org.lwjgl", "lwjgl", "3.3.6"},
+        {"org.lwjgl", "lwjgl-glfw", "3.3.6"},
+        {"org.lwjgl", "lwjgl-opengl", "3.3.6"},
     };
     for (const auto& dependency : hmclDeps) {
         libraries.push_back({
@@ -252,6 +258,13 @@ bool writeMclhrManifest(const Instance& instance, std::string* error) {
             {"artifact", dependency.artifact},
             {"version", dependency.version},
         });
+    }
+
+    static const char* lwjglArtifacts[] = {"lwjgl", "lwjgl-glfw", "lwjgl-opengl"};
+    for (const char* artifact : lwjglArtifacts) {
+        libraries.push_back({{"group", "org.lwjgl"}, {"artifact", artifact}, {"version", "3.3.6"}});
+        libraries.push_back({{"group", "org.lwjgl"}, {"artifact", artifact},
+                             {"version", "3.3.6"}, {"classifier", "natives-windows"}});
     }
 
     const fs::path profileFile = Workspace::get().fabricDir(instance) / "profile.json";
@@ -306,12 +319,6 @@ bool downloadHmcl(const std::function<bool(std::int64_t, std::int64_t)>& progres
 
 bool ensureAgent(std::string* error) {
     const fs::path target = Workspace::get().agentJar();
-    const fs::path helperTarget = target.parent_path() / "FLFEarlyLoader.exe";
-    const fs::path helperSource = Workspace::get().launcherDir() / "FLFEarlyLoader.exe";
-    if (fs::exists(helperSource) && !fs::exists(helperTarget)) {
-        std::error_code ec;
-        fs::copy_file(helperSource, helperTarget, fs::copy_options::overwrite_existing, ec);
-    }
 
     if (fs::exists(target)) {
         return true;
