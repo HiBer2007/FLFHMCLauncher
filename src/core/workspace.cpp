@@ -273,7 +273,7 @@ fs::path Workspace::resolveMods(const Instance& instance) const {
 
 fs::path Workspace::resolveMinecraft(const Instance& instance) const {
     if (instance.isolated) {
-        return home_ / ".launcher" / (instance.uuid.empty() ? instance.id : instance.uuid) / ".minecraft";
+        return home_.parent_path() / ".launcher" / (instance.uuid.empty() ? instance.id : instance.uuid) / ".minecraft";
     }
     // 默认与 .flfhmcl 同级，共用
     return home_.parent_path() / ".minecraft";
@@ -281,7 +281,7 @@ fs::path Workspace::resolveMinecraft(const Instance& instance) const {
 
 fs::path Workspace::resolveHmclHome(const Instance& instance) const {
     if (instance.isolated) {
-        return home_ / ".launcher" / (instance.uuid.empty() ? instance.id : instance.uuid) / ".hmcl";
+        return home_.parent_path() / ".launcher" / (instance.uuid.empty() ? instance.id : instance.uuid) / ".hmcl";
     }
     // 默认与 .flfhmcl 同级，共用
     return home_.parent_path() / ".hmcl";
