@@ -435,7 +435,7 @@ bool installFlfDependencies(const FlfRelease& release, const ProgressFn& progres
 }
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error) {
     std::error_code ec;
-    fs::create_directories(Workspace::get().instanceDir(instance), ec);
+    fs::create_directories(Workspace::get().profileDir(instance), ec);
     fs::create_directories(Workspace::get().resolveMods(instance), ec);
     fs::create_directories(Workspace::get().resolveMinecraft(instance), ec);
 

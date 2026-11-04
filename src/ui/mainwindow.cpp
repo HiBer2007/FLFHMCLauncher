@@ -650,7 +650,7 @@ void MainWindow::beginInstall() {
             ? ss(createFabric_->currentData().toString()) : "0.19.5";
     instance.hmclVersion = createHmcl_ ? ss(createHmcl_->currentData().toString()) : "";
     instance.isolated = createIsolated_ && createIsolated_->isChecked();
-    instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1.1";
+    instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1.2";
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
     installDetailBars_.clear();
@@ -1172,7 +1172,7 @@ void MainWindow::startAgentLoad() {
                 if (version.contains('-')) agentPreview_.append(version);
                 else agentStable_.append(version);
             }
-            if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1.1" : latest);
+            if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1.2" : latest);
             fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
             const int index = createAgent_->findData(latest);
             if (index >= 0) createAgent_->setCurrentIndex(index);
@@ -1348,6 +1348,24 @@ void MainWindow::launchSelected() {
         return;
     }
 
+    {
+        std::error_code ec;
+        const fs::path profile = Workspace::get().profileDir(*instance);
+        fs::create_directories(profile, ec);
+        if (!fs::exists(profile / "instance.json")) {
+            std::ofstream(profile / "instance.json") << toJson(*instance).dump(2);
+        }
+        if (!fs::exists(profile / "launch.json")) {
+            nlohmann::json launch = {
+                {"instance", instance->uuid},
+                {"gameDir", Workspace::get().resolveMinecraft(*instance).string()},
+                {"hmclHome", Workspace::get().resolveHmclHome(*instance).string()},
+                {"mods", Workspace::get().resolveMods(*instance).string()},
+                {"manifest", Workspace::get().manifestPath(*instance).string()},
+            };
+            std::ofstream(profile / "launch.json") << launch.dump(2);
+        }
+    }
     if (instance->validateBeforeLaunch && Workspace::get().config().validateBeforeLaunch) {
         std::string validationError;
         if (!validateInstanceFiles(*instance, &validationError)) {
@@ -1542,7 +1560,11 @@ void MainWindow::deleteInstance() {
     list.erase(std::remove_if(list.begin(), list.end(), [&](const Instance& item) { return item.id == id; }), list.end());
     Workspace::get().saveInstances();
     std::error_code ec;
-    fs::remove_all(Workspace::get().instanceDir(*instance), ec);
+    fs::remove_all(Workspace::get().profileDir(*instance), ec);
+    if (instance->isolated) {
+        fs::remove_all(Workspace::get().home().parent_path() / ".launcher" / instance->uuid, ec);
+    }
+    fs::remove_all(Workspace::get().home() / "mods" / instance->uuid, ec);
     currentId_.clear();
     refreshInstances();
     showToast("已删除实例", "", false);
