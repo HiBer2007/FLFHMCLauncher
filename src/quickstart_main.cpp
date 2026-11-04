@@ -57,7 +57,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
             nullptr,
             nullptr,
             FALSE,
-            0,
+            CREATE_NO_WINDOW,
             nullptr,
             workingDir.empty() ? nullptr : workingDir.c_str(),
             &startup,

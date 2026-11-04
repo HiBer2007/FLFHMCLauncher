@@ -146,7 +146,7 @@ bool launchInstanceManaged(const Instance& instance,
     buffer.push_back('\0');
     const std::string cwd = plan.workingDir.string();
     if (!CreateProcessA(nullptr, buffer.data(), nullptr, nullptr, TRUE,
-                        CREATE_NEW_PROCESS_GROUP, nullptr, cwd.c_str(),
+                        CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW, nullptr, cwd.c_str(),
                         &startup, &process)) {
         CloseHandle(readPipe);
         CloseHandle(writePipe);
