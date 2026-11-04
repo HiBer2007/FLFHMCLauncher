@@ -50,6 +50,12 @@ struct FlfVersion {
     std::string sha256;
 };
 
+/// 已知存在严重故障、不建议继续使用的版本。
+struct FlfProblemVersion {
+    std::string version;
+    std::string reason;
+};
+
 struct FlfRelease {
     bool ok = false;
     std::string version;
@@ -58,6 +64,7 @@ struct FlfRelease {
     std::string sha256;
     std::vector<FlfDependency> dependencies;
     std::vector<FlfVersion> versions;
+    std::vector<FlfProblemVersion> problemVersions;
     std::string error;
 };
 

@@ -237,6 +237,14 @@ FlfRelease fetchFlfRelease(const std::string& type, std::string* error, const st
                 result.sha256 = item.sha256;
             }
         }
+        for (const auto& entry : json.value("ProblemVersions", nlohmann::json::array())) {
+            FlfProblemVersion problem;
+            problem.version = entry.value("version", "");
+            problem.reason = entry.value("reason", "");
+            if (!problem.version.empty()) {
+                result.problemVersions.push_back(std::move(problem));
+            }
+        }
         for (const auto& dep : json.value("Dependencies", nlohmann::json::array())) {
             FlfDependency dependency;
             dependency.group = dep.value("group", "");

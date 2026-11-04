@@ -78,6 +78,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     applyTheme();
     buildUi();
     refreshInstances();
+
+    std::thread([this]() {
+        std::string error;
+        const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
+        QMetaObject::invokeMethod(this, [this, release]() {
+            problemVersions_.clear();
+            for (const auto& problem : release.problemVersions) {
+                problemVersions_.insert(qs(problem.version), qs(problem.reason));
+            }
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void MainWindow::applyTheme() {
@@ -634,6 +645,12 @@ void MainWindow::beginInstall() {
     const QString name = createName_ ? createName_->text().trimmed() : QString();
     if (name.isEmpty()) {
         createError_->setText("名称不能为空");
+        return;
+    }
+    const QString agentSelection = createAgent_ ? createAgent_->currentData().toString() : QString();
+    if (problemVersions_.contains(agentSelection)) {
+        createError_->setText(QStringLiteral("FLFHMCL %1 存在严重故障，请切换到 2.1.5 或更高版本")
+                                      .arg(agentSelection));
         return;
     }
     QString duplicateName;
@@ -1392,16 +1409,23 @@ void MainWindow::startAgentLoad() {
         const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
         QStringList versions;
         QString latest;
+        QHash<QString, QString> problems;
         if (release.ok) {
             for (const auto& item : release.versions) versions.append(qs(item.version));
             latest = qs(release.version);
+            for (const auto& problem : release.problemVersions) {
+                problems.insert(qs(problem.version), qs(problem.reason));
+            }
         }
-        QMetaObject::invokeMethod(this, [this, token, versions, latest]() {
+        QMetaObject::invokeMethod(this, [this, token, versions, latest, problems]() {
             if (token != agentToken_) return;
             if (agentBusy_) agentBusy_->hide();
             if (agentStop_) agentStop_->setEnabled(false);
             if (agentRefresh_) agentRefresh_->setEnabled(true);
             if (!createAgent_) return;
+            if (!problems.isEmpty()) {
+                problemVersions_ = problems;
+            }
             agentStable_.clear();
             agentPreview_.clear();
             for (const QString& version : versions) {
@@ -1410,6 +1434,12 @@ void MainWindow::startAgentLoad() {
             }
             if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1.6" : latest);
             fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
+            for (int i = 0; i < createAgent_->count(); ++i) {
+                const QString version = createAgent_->itemData(i).toString();
+                if (problems.contains(version) && !createAgent_->itemText(i).contains("故障")) {
+                    createAgent_->setItemText(i, createAgent_->itemText(i) + "（故障）");
+                }
+            }
             const int index = createAgent_->findData(latest);
             if (index >= 0) createAgent_->setCurrentIndex(index);
         }, Qt::QueuedConnection);
@@ -1581,6 +1611,28 @@ void MainWindow::launchSelected() {
     }
     if (launching_.contains(qs(instance->uuid))) {
         showToast("该实例正在运行", "可以同时启动其他实例", false);
+        return;
+    }
+
+    const QString agentVersion = qs(instance->agentVersion);
+    QString problem = problemVersions_.value(agentVersion);
+    if (problem.isEmpty()
+            && (agentVersion == "2.1" || agentVersion == "2.1.1"
+                || agentVersion == "2.1.2" || agentVersion == "2.1.3"
+                || agentVersion == "2.1.4")) {
+        problem = "该 FLFHMCL 版本存在严重启动/关闭故障，请尽快更新或切换版本。";
+    }
+    if (!problem.isEmpty()) {
+        QMessageBox box(this);
+        box.setWindowTitle("FLFHMCL 版本存在严重故障");
+        box.setText(QStringLiteral("实例正在使用 FLFHMCL %1").arg(agentVersion));
+        box.setInformativeText(problem + "\n\n是否打开“更新实例组件”切换版本？");
+        auto* updateButton = box.addButton("更新实例", QMessageBox::AcceptRole);
+        box.addButton("取消", QMessageBox::RejectRole);
+        box.exec();
+        if (box.clickedButton() == updateButton) {
+            showUpdateDialog();
+        }
         return;
     }
 
