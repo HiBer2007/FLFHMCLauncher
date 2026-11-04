@@ -68,7 +68,7 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
     fs::create_directories(hmclHome, ec);
     plan.workingDir = base;
     plan.arguments = {
-        "-javaagent:" + workspace.agentJar().string(),
+        "-javaagent:" + workspace.agentJar(instance).string(),
         "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
         "-Dflfhmcl.gameDir=" + gameDir.string(),
         "-Dflf.instance=" + instance.id,

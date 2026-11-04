@@ -642,6 +642,22 @@ void MainWindow::createInstance() {
     auto* versionLabel = new QLabel(QStringLiteral("HMCL %1（自动使用最新版）").arg(version), &dialog);
     versionLabel->setObjectName("sub");
     layout->addWidget(versionLabel);
+
+    QComboBox* agentCombo = new QComboBox(&dialog);
+    std::string metadataError;
+    const FlfRelease flf = fetchFlfRelease("flfhmcl", &metadataError);
+    if (flf.ok) {
+        for (const auto& item : flf.versions) {
+            agentCombo->addItem("FLFHMCL " + qs(item.version), qs(item.version));
+        }
+        const int latest = agentCombo->findData(qs(flf.version));
+        if (latest >= 0) agentCombo->setCurrentIndex(latest);
+    } else {
+        agentCombo->addItem("FLFHMCL 2.1", "2.1");
+    }
+    auto* agentLabel = new QLabel("FLFHMCL 版本", &dialog);
+    layout->addWidget(agentLabel);
+    layout->addWidget(agentCombo);
     auto* isolated = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", &dialog);
     layout->addWidget(isolated);
     auto* hint = new QLabel("不勾选时与 .flfhmcl 同级；勾选后完全独立，便于复制实例。", &dialog);
@@ -667,10 +683,10 @@ void MainWindow::createInstance() {
         dialog.accept();
     });
     if (dialog.exec() != QDialog::Accepted) return;
-    runInstall(nameEdit->text().trimmed(), isolated->isChecked());
+    runInstall(nameEdit->text().trimmed(), isolated->isChecked(), agentCombo->currentData().toString());
 }
 
-void MainWindow::runInstall(const QString& name, bool isolated) {
+void MainWindow::runInstall(const QString& name, bool isolated, const QString& agentVersion) {
     Instance instance;
     instance.uuid = newInstanceUuid();
     instance.id = ss(makeId(name));
@@ -678,6 +694,7 @@ void MainWindow::runInstall(const QString& name, bool isolated) {
     instance.gameVersion = "1.21.1";
     instance.loaderVersion = "0.19.5";
     instance.isolated = isolated;
+    instance.agentVersion = ss(agentVersion);
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
     QProgressDialog progress("正在准备，请稍候…", QString(), 0, 100, this);

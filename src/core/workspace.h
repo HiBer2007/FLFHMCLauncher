@@ -25,6 +25,7 @@ struct Instance {
     std::string loader = "fabric";
     std::string loaderVersion;
     std::string javaPath;      // 空 = 自动
+    std::string agentVersion;  // FLFHMCL Agent 版本
     Layer mods;
     Layer minecraft;
     Layer hmclHome;
@@ -70,6 +71,7 @@ public:
     fs::path librariesDir() const;
     fs::path hmclJar() const;
     fs::path agentJar() const;
+    fs::path agentJar(const Instance& instance) const;
     fs::path javaDir() const;
     fs::path fabricDir(const Instance& instance) const;
 

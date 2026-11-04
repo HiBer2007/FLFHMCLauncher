@@ -151,7 +151,7 @@ HmclRelease fetchHmclRelease(std::string* error) {
     return release;
 }
 
-FlfRelease fetchFlfRelease(const std::string& type, std::string* error) {
+FlfRelease fetchFlfRelease(const std::string& type, std::string* error, const std::string& version) {
     FlfRelease result;
     const HttpResult response = httpGet(
             "https://metadata.hibernet.top/api/metadata?type=" + type);
@@ -162,15 +162,19 @@ FlfRelease fetchFlfRelease(const std::string& type, std::string* error) {
     }
     try {
         const auto json = nlohmann::json::parse(response.body);
-        result.version = jsonString(json, "Latest");
+        result.version = version.empty() ? jsonString(json, "Latest") : version;
         for (const auto& entry : json.value("List", nlohmann::json::array())) {
-            if (entry.value("version", "") != result.version) {
-                continue;
+            FlfVersion item;
+            item.version = entry.value("version", "");
+            item.downloadLink = entry.value("download_link", "");
+            item.sha256 = entry.value("sha_256", "");
+            if (item.version.empty()) continue;
+            result.versions.push_back(item);
+            if (item.version == result.version) {
+                result.downloadLink = item.downloadLink;
+                result.releasePage = entry.value("release_page", "");
+                result.sha256 = item.sha256;
             }
-            result.downloadLink = entry.value("download_link", "");
-            result.releasePage = entry.value("release_page", "");
-            result.sha256 = entry.value("sha_256", "");
-            break;
         }
         for (const auto& dep : json.value("Dependencies", nlohmann::json::array())) {
             FlfDependency dependency;

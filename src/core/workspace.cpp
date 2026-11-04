@@ -67,6 +67,7 @@ std::string newInstanceUuid() {
 nlohmann::json toJson(const Instance& instance) {
     return {
         {"uuid", instance.uuid},
+        {"agentVersion", instance.agentVersion},
         {"id", instance.id},
         {"name", instance.name},
         {"gameVersion", instance.gameVersion},
@@ -85,6 +86,7 @@ nlohmann::json toJson(const Instance& instance) {
 Instance instanceFromJson(const nlohmann::json& json) {
     Instance instance;
     instance.uuid = json.value("uuid", "");
+    instance.agentVersion = json.value("agentVersion", "");
     instance.id = json.value("id", "");
     instance.name = json.value("name", instance.id);
     instance.gameVersion = json.value("gameVersion", "");
@@ -255,6 +257,12 @@ fs::path Workspace::hmclJar() const {
     return home_ / "hmcl" / "HMCL.jar";
 }
 
+fs::path Workspace::agentJar(const Instance& instance) const {
+    if (!instance.agentVersion.empty()) {
+        return home_ / "agents" / ("FLFHMCL-" + instance.agentVersion + ".jar");
+    }
+    return agentJar();
+}
 fs::path Workspace::agentJar() const {
     if (!config_.agentJar.empty()) {
         return fs::u8path(config_.agentJar);

@@ -44,6 +44,12 @@ struct FlfDependency {
     std::string classifier;
 };
 
+struct FlfVersion {
+    std::string version;
+    std::string downloadLink;
+    std::string sha256;
+};
+
 struct FlfRelease {
     bool ok = false;
     std::string version;
@@ -51,11 +57,13 @@ struct FlfRelease {
     std::string releasePage;
     std::string sha256;
     std::vector<FlfDependency> dependencies;
+    std::vector<FlfVersion> versions;
     std::string error;
 };
 
 /// 从 metadata.hibernet.top 获取 FLF 组件元数据（flfhmcl / flfapi）。
-FlfRelease fetchFlfRelease(const std::string& type, std::string* error);
+FlfRelease fetchFlfRelease(const std::string& type, std::string* error,
+                           const std::string& version = {});
 
 HmclRelease fetchHmclRelease(std::string* error);
 

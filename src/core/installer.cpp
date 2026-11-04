@@ -321,71 +321,43 @@ bool downloadHmcl(const std::function<bool(std::int64_t, std::int64_t)>& progres
     return httpDownload(release.jarUrl, Workspace::get().hmclJar(), progress, error);
 }
 
-bool ensureAgent(std::string* error) {
-    const fs::path target = Workspace::get().agentJar();
-    const fs::path versionFile = Workspace::get().home() / "agent.version";
-
+bool ensureAgent(const std::string& version, std::string* error) {
     std::string metadataError;
-    const FlfRelease release = fetchFlfRelease("flfhmcl", &metadataError);
-    if (release.ok) {
-        std::string installedVersion;
-        if (fs::exists(versionFile)) {
-            installedVersion = readFile(versionFile);
-        }
-        if (fs::exists(target) && installedVersion == release.version) {
-            return true;
-        }
-        const fs::path temp = target.string() + ".tmp";
-        if (httpDownload(release.downloadLink, temp, nullptr, error)) {
-            if (!release.sha256.empty()) {
-                const std::string actual = sha256File(temp);
-                if (actual != release.sha256) {
-                    std::error_code ec;
-                    fs::remove(temp, ec);
-                    if (error) *error = "FLFHMCL 下载校验失败";
-                    return false;
-                }
-            }
-            std::error_code ec;
-            fs::create_directories(target.parent_path(), ec);
-            fs::rename(temp, target, ec);
-            if (!ec) {
-                std::ofstream(versionFile) << release.version;
-                return true;
-            }
-        }
+    const FlfRelease release = fetchFlfRelease("flfhmcl", &metadataError, version);
+    if (!release.ok) {
+        if (error) *error = metadataError.empty() ? "无法获取 FLFHMCL 元数据" : metadataError;
+        return false;
     }
-
+    const fs::path target = Workspace::get().home() / "agents"
+            / ("FLFHMCL-" + release.version + ".jar");
     if (fs::exists(target)) {
-        return true;
-    }
-    const fs::path local = Workspace::get().launcherDir() / "FLFHMCL-agent.jar";
-    if (fs::exists(local)) {
-        return copyFile(local, target, error);
-    }
-    // 自包含兜底：从启动器资源释放 Agent
-    QFile embedded(":/assets/agent/FLFHMCL-agent.jar");
-    if (embedded.open(QIODevice::ReadOnly)) {
-        std::error_code ec;
-        fs::create_directories(target.parent_path(), ec);
-        QFile output(QString::fromStdWString(target.wstring()));
-        if (output.open(QIODevice::WriteOnly)) {
-            output.write(embedded.readAll());
-            output.close();
+        if (release.sha256.empty() || sha256File(target) == release.sha256) {
             return true;
         }
     }
-    if (error) {
-        *error = "无法获取 FLFHMCL Agent: " + (metadataError.empty() ? "本地文件缺失" : metadataError);
+    const fs::path temp = target.string() + ".tmp";
+    if (!httpDownload(release.downloadLink, temp, nullptr, error)) {
+        return false;
     }
-    return false;
+    if (!release.sha256.empty() && sha256File(temp) != release.sha256) {
+        std::error_code ec;
+        fs::remove(temp, ec);
+        if (error) *error = "FLFHMCL Agent 校验失败";
+        return false;
+    }
+    std::error_code ec;
+    fs::create_directories(target.parent_path(), ec);
+    fs::rename(temp, target, ec);
+    if (ec) {
+        if (error) *error = "保存 FLFHMCL Agent 失败: " + ec.message();
+        return false;
+    }
+    return true;
 }
-
 bool installFlfApi(Instance& instance, std::string* error) {
     std::string metadataError;
     const FlfRelease release = fetchFlfRelease("flfapi", &metadataError);
     if (!release.ok) {
-        // 元数据尚未提供 FLF API 时跳过，不阻塞实例安装
         return true;
     }
     const std::string fileName = release.downloadLink.substr(release.downloadLink.find_last_of('/') + 1);
@@ -415,7 +387,6 @@ bool installFlfDependencies(const FlfRelease& release, std::string* error) {
     }
     return true;
 }
-
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error) {
     std::error_code ec;
     fs::create_directories(Workspace::get().instanceDir(instance), ec);
@@ -448,7 +419,7 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
         return false;
     }
 
-    if (!ensureAgent(error)) {
+    if (!ensureAgent(instance.agentVersion, error)) {
         return false;
     }
 
@@ -483,7 +454,7 @@ bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& p
     if (!valid(tool)) {
         // 优先释放内置静态版，保证离线可用
         bool installed = false;
-        QFile embedded(":/assets/tools/CrashTracker.exe");
+        QFile embedded(":/third_party/CrashTracker/CrashTracker.exe");
         if (embedded.open(QIODevice::ReadOnly)) {
             std::error_code ec;
             fs::create_directories(toolDir, ec);

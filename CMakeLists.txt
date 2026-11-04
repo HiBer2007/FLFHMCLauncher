@@ -93,7 +93,7 @@ qt_add_executable(FLFHMCLauncher WIN32
 
 qt_add_resources(FLFHMCLauncher "app_resources"
     PREFIX "/"
-    FILES assets/icon/flfhmlauncher-256.png assets/tools/CrashTracker.exe assets/agent/FLFHMCL-agent.jar
+    FILES assets/icon/flfhmlauncher-256.png third_party/CrashTracker/CrashTracker.exe
 )
 
 if(MSVC)

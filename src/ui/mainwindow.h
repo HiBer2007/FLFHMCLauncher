@@ -55,7 +55,7 @@ private:
     void refreshMods();
     void applyTheme();
     void showToast(const QString& title, const QString& detail, bool error = false);
-    void runInstall(const QString& name, bool isolated = false);
+    void runInstall(const QString& name, bool isolated = false, const QString& agentVersion = {});
     void setCurrent(const std::string& id);
     void fadeIn(QWidget* widget);
 
