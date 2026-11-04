@@ -460,7 +460,10 @@ bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& p
                         std::string* error) {
     const fs::path toolDir = Workspace::get().home() / "tools" / "CrashTracker";
     const fs::path tool = toolDir / "CrashTracker.exe";
-    if (!fs::exists(tool)) {
+
+    // 调试版 CrashTracker 依赖 Qt6Widgetsd.dll；优先使用静态链接版本
+    const bool existingIsStatic = fs::exists(tool) && fs::file_size(tool) > 5 * 1024 * 1024;
+    if (!existingIsStatic) {
         const HttpResult response =
                 httpGet("https://api.github.com/repos/HiBer2007/CrashTracker/releases/latest");
         if (!response.ok) {
@@ -469,18 +472,31 @@ bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& p
         }
         try {
             const auto json = nlohmann::json::parse(response.body);
-            std::string url;
+            std::string staticUrl;
+            std::string normalUrl;
             for (const auto& asset : json.value("assets", nlohmann::json::array())) {
-                if (asset.value("name", "") == "CrashTracker.exe") {
-                    url = asset.value("browser_download_url", "");
+                const std::string name = asset.value("name", "");
+                if (name == "CrashTracker_Static.exe") {
+                    staticUrl = asset.value("browser_download_url", "");
+                } else if (name == "CrashTracker.exe") {
+                    normalUrl = asset.value("browser_download_url", "");
                 }
             }
+            const std::string url = staticUrl.empty() ? normalUrl : staticUrl;
             if (url.empty()) {
-                if (error) *error = "CrashTracker Release 中没有 CrashTracker.exe";
+                if (error) *error = "CrashTracker Release 中没有可用的 exe";
                 return false;
             }
-            if (!httpDownload(url, tool, progress, error)) {
+            const fs::path temp = tool.string() + ".tmp";
+            if (!httpDownload(url, temp, progress, error)) {
                 return false;
+            }
+            std::error_code ec;
+            fs::create_directories(toolDir, ec);
+            fs::rename(temp, tool, ec);
+            if (ec) {
+                fs::copy_file(temp, tool, fs::copy_options::overwrite_existing, ec);
+                fs::remove(temp, ec);
             }
         } catch (const std::exception& e) {
             if (error) *error = std::string("解析 CrashTracker Release 失败: ") + e.what();
@@ -489,13 +505,8 @@ bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& p
     }
 
     const fs::path beside = Workspace::get().launcherDir() / "CrashTracker.exe";
-    if (!fs::exists(beside)) {
-        std::error_code ec;
-        fs::copy_file(tool, beside, fs::copy_options::overwrite_existing, ec);
-        if (ec) {
-            // 硬链接失败则忽略：崩溃时找不到工具会退化为普通退出
-        }
-    }
+    std::error_code ec;
+    fs::copy_file(tool, beside, fs::copy_options::overwrite_existing, ec);
     return true;
 }
 

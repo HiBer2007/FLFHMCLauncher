@@ -68,6 +68,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     }
 
     CloseHandle(process.hThread);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exitCode = 0;
+    GetExitCodeProcess(process.hProcess, &exitCode);
     CloseHandle(process.hProcess);
-    return 0;
+    return static_cast<int>(exitCode);
 }

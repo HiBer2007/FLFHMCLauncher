@@ -4,7 +4,11 @@
 
 #include <QProcess>
 
+#include <windows.h>
 #include <fstream>
+#include <memory>
+#include <mutex>
+#include <thread>
 #include <sstream>
 
 namespace flf {
@@ -96,6 +100,81 @@ bool launchInstance(const Instance& instance, std::string* error, bool quickStar
     return started;
 }
 
+bool launchInstanceManaged(const Instance& instance,
+                           const std::function<void(const std::string&)>& onOutput,
+                           const std::function<void(int, const std::string&)>& onExit,
+                           std::string* error) {
+    const LaunchPlan plan = buildLaunchPlan(instance, false);
+    std::string command = quote(plan.program);
+    for (const auto& argument : plan.arguments) {
+        command += " " + quote(argument);
+    }
+
+    SECURITY_ATTRIBUTES attributes{};
+    attributes.nLength = sizeof(attributes);
+    attributes.bInheritHandle = TRUE;
+    HANDLE readPipe = nullptr;
+    HANDLE writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &attributes, 0)) {
+        if (error) *error = "创建输出管道失败";
+        return false;
+    }
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdOutput = writePipe;
+    startup.hStdError = writePipe;
+
+    PROCESS_INFORMATION process{};
+    std::vector<char> buffer(command.begin(), command.end());
+    buffer.push_back('\0');
+    const std::string cwd = plan.workingDir.string();
+    if (!CreateProcessA(nullptr, buffer.data(), nullptr, nullptr, TRUE,
+                        CREATE_NEW_PROCESS_GROUP, nullptr, cwd.c_str(),
+                        &startup, &process)) {
+        CloseHandle(readPipe);
+        CloseHandle(writePipe);
+        if (error) *error = "启动 Java 失败 (error " + std::to_string(GetLastError()) + ")";
+        return false;
+    }
+    CloseHandle(writePipe);
+    CloseHandle(process.hThread);
+
+    auto output = std::make_shared<std::string>();
+    auto lock = std::make_shared<std::mutex>();
+    std::thread([readPipe, output, lock, onOutput]() {
+        char chunk[4096];
+        DWORD read = 0;
+        while (ReadFile(readPipe, chunk, sizeof(chunk), &read, nullptr) && read > 0) {
+            {
+                std::lock_guard<std::mutex> guard(*lock);
+                output->append(chunk, read);
+            }
+            if (onOutput) {
+                onOutput(std::string(chunk, read));
+            }
+        }
+        CloseHandle(readPipe);
+    }).detach();
+
+    std::thread([process, output, lock, onExit]() {
+        WaitForSingleObject(process.hProcess, INFINITE);
+        DWORD code = 0;
+        GetExitCodeProcess(process.hProcess, &code);
+        CloseHandle(process.hProcess);
+        std::string collected;
+        {
+            std::lock_guard<std::mutex> guard(*lock);
+            collected = *output;
+        }
+        if (onExit) {
+            onExit(static_cast<int>(code), collected);
+        }
+    }).detach();
+    return true;
+}
 bool writeQuickStart(const Instance& instance, const fs::path& outDir, std::string* error) {
     std::error_code ec;
     fs::create_directories(outDir, ec);

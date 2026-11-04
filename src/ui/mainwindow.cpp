@@ -7,6 +7,8 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QFile>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
@@ -294,6 +296,35 @@ QWidget* MainWindow::buildSettingsPage() {
         applyTheme();
     });
     a->addWidget(darkToggle_);
+    auto* behaviorLabel = new QLabel("启动后：", appearance);
+    behaviorGlobal_ = new QComboBox(appearance);
+    behaviorGlobal_->addItem("保持启动器显示", "keep");
+    behaviorGlobal_->addItem("隐藏启动器", "hide");
+    behaviorGlobal_->addItem("退出启动器", "exit");
+    behaviorGlobal_->setCurrentIndex(std::max(0, behaviorGlobal_->findData(
+            qs(Workspace::get().config().launchBehavior))));
+    connect(behaviorGlobal_, &QComboBox::currentIndexChanged, this, [this](int) {
+        Workspace::get().config().launchBehavior =
+                ss(behaviorGlobal_->currentData().toString());
+        Workspace::get().saveConfig();
+    });
+    a->addWidget(behaviorLabel);
+    a->addWidget(behaviorGlobal_);
+
+    auto* instanceBehavior = new QLabel("当前实例覆盖：", appearance);
+    behaviorInstance_ = new QComboBox(appearance);
+    behaviorInstance_->addItem("继承全局", "");
+    behaviorInstance_->addItem("保持启动器显示", "keep");
+    behaviorInstance_->addItem("隐藏启动器", "hide");
+    behaviorInstance_->addItem("退出启动器", "exit");
+    connect(behaviorInstance_, &QComboBox::currentIndexChanged, this, [this](int) {
+        Instance* instance = selectedInstance();
+        if (!instance) return;
+        instance->launchBehavior = ss(behaviorInstance_->currentData().toString());
+        Workspace::get().saveInstances();
+    });
+    a->addWidget(instanceBehavior);
+    a->addWidget(behaviorInstance_);
     layout->addWidget(appearance);
 
     auto* data = new QFrame(page);
@@ -547,6 +578,13 @@ void MainWindow::fadeIn(QWidget* widget) {
 
 void MainWindow::setCurrent(const std::string& id) {
     currentId_ = id;
+    if (behaviorInstance_) {
+        behaviorInstance_->blockSignals(true);
+        Instance* instance = selectedInstance();
+        const QString value = instance ? qs(instance->launchBehavior) : QString();
+        behaviorInstance_->setCurrentIndex(std::max(0, behaviorInstance_->findData(value)));
+        behaviorInstance_->blockSignals(false);
+    }
     for (QFrame* card : findChildren<QFrame*>("instanceCard")) {
         card->setProperty("selected", card->property("instanceId").toString() == qs(id));
         card->style()->unpolish(card);
@@ -560,10 +598,24 @@ Instance* MainWindow::selectedInstance() {
 }
 
 void MainWindow::showToast(const QString& title, const QString& detail, bool error) {
+    if (!error) {
+        auto* toast = new QLabel(this);
+        toast->setAttribute(Qt::WA_DeleteOnClose);
+        toast->setStyleSheet(
+                "background: #1f2a3a; color: #e8eef7; border: 1px solid #3b82f6;"
+                "border-radius: 8px; padding: 10px 16px;");
+        toast->setText(detail.isEmpty() ? title : title + "\n" + detail);
+        toast->adjustSize();
+        toast->move(width() - toast->width() - 28, 64);
+        toast->show();
+        toast->raise();
+        QTimer::singleShot(2600, toast, &QLabel::close);
+        return;
+    }
 #ifdef FLF_HAVE_HIBERGUI
-    if (toast_) { toast_->showError(title, detail, error ? 4000 : 2600); return; }
+    if (toast_) { toast_->showError(title, detail, 4000); return; }
 #endif
-    if (error) QMessageBox::warning(this, title, detail);
+    QMessageBox::warning(this, title, detail);
 }
 
 void MainWindow::createInstance() {
@@ -655,12 +707,82 @@ void MainWindow::runInstall(const QString& name) {
 
 void MainWindow::launchSelected() {
     Instance* instance = selectedInstance();
-    if (!instance) { showToast("还没有选择实例", "先点一张实例卡片，再点启动", true); return; }
-    std::string error;
-    if (!launchInstance(*instance, &error)) { showToast("启动失败", qs(error), true); return; }
-    showToast("已启动", QStringLiteral("正在打开 %1").arg(qs(instance->name)), false);
-}
+    if (!instance) {
+        showToast("还没有选择实例", "先点一张实例卡片，再点启动", true);
+        return;
+    }
+    if (launching_) {
+        showToast("HMCL 正在运行", "请等待当前实例退出", false);
+        return;
+    }
 
+    const QString name = qs(instance->name);
+    const QString logPath = QString::fromStdWString(
+            (Workspace::get().home() / "logs"
+             / ("instance-" + instance->uuid + ".log")).wstring());
+    QDir().mkpath(QFileInfo(logPath).absolutePath());
+    runLog_.clear();
+    launching_ = true;
+
+    std::string error;
+    const bool ok = launchInstanceManaged(
+            *instance,
+            [this, logPath](const std::string& chunk) {
+                const QString text = QString::fromUtf8(chunk.data(), static_cast<int>(chunk.size()));
+                QMetaObject::invokeMethod(this, [this, text, logPath]() {
+                    runLog_ += text;
+                    QFile file(logPath);
+                    if (file.open(QIODevice::Append)) {
+                        file.write(text.toUtf8());
+                    }
+                }, Qt::QueuedConnection);
+            },
+            [this, name](int code, const std::string& output) {
+                const QString text = QString::fromUtf8(output.data(), static_cast<int>(output.size()));
+                QMetaObject::invokeMethod(this, [this, code, text, name]() {
+                    launching_ = false;
+                    if (code == 0) {
+                        showToast("HMCL 已退出", name + " 正常退出", false);
+                        return;
+                    }
+                    QStringList details;
+                    for (const QString& line : text.split('\n')) {
+                        if (line.contains("Exception") || line.contains("Error")
+                                || line.contains("Caused by") || line.contains("crash")) {
+                            details.append(line.trimmed());
+                        }
+                    }
+                    if (details.size() > 12) {
+                        details = details.mid(details.size() - 12);
+                    }
+                    const QString summary = details.isEmpty()
+                            ? QStringLiteral("未从输出中找到异常行，请查看实例日志。")
+                            : details.join("\n");
+                    QMessageBox::warning(this, "HMCL 异常退出",
+                            QStringLiteral("退出代码：%1\n\n%2").arg(code).arg(summary));
+                    showToast("HMCL 异常退出", QStringLiteral("退出代码 %1").arg(code), true);
+                }, Qt::QueuedConnection);
+            },
+            &error);
+
+    if (!ok) {
+        launching_ = false;
+        showToast("启动失败", qs(error), true);
+        return;
+    }
+
+    std::string behavior = instance->launchBehavior;
+    if (behavior.empty()) {
+        behavior = Workspace::get().config().launchBehavior;
+    }
+    if (behavior == "hide") {
+        hide();
+    } else if (behavior == "exit") {
+        QApplication::quit();
+        return;
+    }
+    showToast("已启动HMCL", QStringLiteral("正在打开 %1").arg(name), false);
+}
 void MainWindow::quickStartSelected() {
     Instance* instance = selectedInstance();
     if (!instance) { showToast("还没有选择实例", "请先选择实例", true); return; }

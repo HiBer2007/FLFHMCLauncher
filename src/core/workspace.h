@@ -28,6 +28,7 @@ struct Instance {
     Layer mods;
     Layer minecraft;
     Layer hmclHome;
+    std::string launchBehavior;  // "" = 继承全局；keep / hide / exit
     std::int64_t createdAt = 0;
 };
 
@@ -37,6 +38,7 @@ struct AppConfig {
     std::string agentJar;      // 可覆盖 Agent 路径
     std::string lastInstance;
     nlohmann::json mirrors = nlohmann::json::object();
+    std::string launchBehavior = "keep";  // keep / hide / exit
 };
 
 /// 工作区：`.flfhmcl` 根、配置、实例列表。

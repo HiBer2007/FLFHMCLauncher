@@ -11,6 +11,7 @@ class QWidget;
 class QPushButton;
 class QCheckBox;
 class QListWidget;
+class QComboBox;
 
 namespace HiBerGUI {
 class ToastNotification;
@@ -69,7 +70,11 @@ private:
     QLabel* modsTitle_ = nullptr;
     QLabel* status_ = nullptr;
     QCheckBox* darkToggle_ = nullptr;
+    QComboBox* behaviorGlobal_ = nullptr;
+    QComboBox* behaviorInstance_ = nullptr;
     HiBerGUI::ToastNotification* toast_ = nullptr;
+    QString runLog_;
+    bool launching_ = false;
     std::string currentId_;
     bool dark_ = false;
 };

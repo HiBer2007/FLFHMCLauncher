@@ -76,6 +76,7 @@ nlohmann::json toJson(const Instance& instance) {
         {"mods", layerToJson(instance.mods)},
         {"minecraft", layerToJson(instance.minecraft)},
         {"hmclHome", layerToJson(instance.hmclHome)},
+        {"launchBehavior", instance.launchBehavior},
         {"createdAt", instance.createdAt},
     };
 }
@@ -89,6 +90,7 @@ Instance instanceFromJson(const nlohmann::json& json) {
     instance.loader = json.value("loader", "fabric");
     instance.loaderVersion = json.value("loaderVersion", "");
     instance.javaPath = json.value("javaPath", "");
+    instance.launchBehavior = json.value("launchBehavior", "");
     instance.createdAt = json.value("createdAt", 0LL);
     if (json.contains("mods")) instance.mods = layerFromJson(json["mods"]);
     if (json.contains("minecraft")) instance.minecraft = layerFromJson(json["minecraft"]);
@@ -118,6 +120,7 @@ void Workspace::initialize() {
             config_.agentJar = json.value("agentJar", "");
             config_.lastInstance = json.value("lastInstance", "");
             config_.mirrors = json.value("mirrors", nlohmann::json::object());
+            config_.launchBehavior = json.value("launchBehavior", "keep");
         } catch (...) {
             // 配置损坏时使用默认值
         }
@@ -198,6 +201,7 @@ void Workspace::saveConfig() {
         {"agentJar", config_.agentJar},
         {"lastInstance", config_.lastInstance},
         {"mirrors", config_.mirrors},
+        {"launchBehavior", config_.launchBehavior},
     };
     writeJson(home_ / "config" / "launcher.json", json);
 }

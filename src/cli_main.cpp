@@ -8,6 +8,8 @@
 
 #include <cstdio>
 #include <iostream>
+#include <condition_variable>
+#include <mutex>
 
 using namespace flf;
 
@@ -98,12 +100,24 @@ int main(int argc, char* argv[]) {
             std::cerr << "instance not found: " << args[2].toStdString() << "\n";
             return 2;
         }
-        if (!flf::launchInstance(*instance, &error)) {
+        std::mutex mutex;
+        std::condition_variable done;
+        bool finished = false;
+        int exitCode = -1;
+        if (!flf::launchInstanceManaged(*instance,
+                [](const std::string& chunk) { std::cout << chunk << std::flush; },
+                [&](int code, const std::string&) {
+                    std::lock_guard<std::mutex> lock(mutex);
+                    exitCode = code;
+                    finished = true;
+                    done.notify_all();
+                }, &error)) {
             std::cerr << "launch failed: " << error << "\n";
             return 3;
         }
-        std::cout << "launched\n";
-        return 0;
+        std::unique_lock<std::mutex> lock(mutex);
+        done.wait(lock, [&]() { return finished; });
+        return exitCode == 0 ? 0 : 4;
     }
 
     std::cout << "usage: FLFLauncherCli selftest | install <id> <game> [loader] [java] | launch <id>\n";
