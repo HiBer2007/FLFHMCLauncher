@@ -2,6 +2,7 @@
 
 #include "core/http.h"
 #include "core/meta.h"
+#include "core/library_table.h"
 
 #include <windows.h>
 
@@ -100,14 +101,9 @@ bool ensureJava(Instance& instance, const ProgressFn& progress, std::string* err
 
 bool installJavaFx(const ProgressFn& progress, std::string* error) {
     for (const char* component : {"base", "graphics", "controls"}) {
-        const fs::path target = Workspace::get().librariesDir()
-                / ("org_openjfx_javafx-" + std::string(component) + "_"
-                   + kJavaFxVersion + "-win.jar");
-        if (fs::exists(target)) {
-            continue;
-        }
-        const std::string url = javaFxUrl(component, kJavaFxVersion);
-        if (!httpDownload(url, target, nullptr, error)) {
+        if (!LibraryTable::instance().ensure(
+                "org.openjfx", std::string("javafx-") + component,
+                kJavaFxVersion, "win", "https://repo1.maven.org/maven2/", error)) {
             return false;
         }
     }
@@ -138,13 +134,8 @@ bool installFabric(Instance& instance, const ProgressFn& progress, std::string* 
         if (group.empty()) {
             continue;
         }
-        const fs::path target = Workspace::get().librariesDir()
-                / flatNameFor(group, artifact, version, classifier);
-        if (!fs::exists(target)) {
-            const std::string url = baseUrl + mavenPathFor(group, artifact, version, classifier);
-            if (!httpDownload(url, target, nullptr, error)) {
-                return false;
-            }
+        if (!LibraryTable::instance().ensure(group, artifact, version, classifier, baseUrl, error)) {
+            return false;
         }
         ++index;
         progress("Fabric 库 " + std::to_string(index) + "/"
@@ -182,14 +173,10 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
     int index = 0;
     const int total = static_cast<int>(std::size(dependencies));
     for (const auto& dependency : dependencies) {
-        const fs::path target = Workspace::get().librariesDir()
-                / flatNameFor(dependency.group, dependency.artifact, dependency.version, "");
-        if (!fs::exists(target)) {
-            const std::string url = "https://repo1.maven.org/maven2/"
-                    + mavenPathFor(dependency.group, dependency.artifact, dependency.version, "");
-            if (!httpDownload(url, target, nullptr, error)) {
-                return false;
-            }
+        if (!LibraryTable::instance().ensure(dependency.group, dependency.artifact,
+                                             dependency.version, "",
+                                             "https://repo1.maven.org/maven2/", error)) {
+            return false;
         }
         ++index;
         progress("HMCL 依赖 " + std::to_string(index) + "/" + std::to_string(total),
@@ -199,14 +186,10 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
     // LWJGL 各平台 natives
     static const char* lwjglArtifacts[] = {"lwjgl", "lwjgl-glfw", "lwjgl-opengl"};
     for (const char* artifact : lwjglArtifacts) {
-        const fs::path target = Workspace::get().librariesDir()
-                / flatNameFor("org.lwjgl", artifact, "3.3.6", "natives-windows");
-        if (!fs::exists(target)) {
-            const std::string url = "https://repo1.maven.org/maven2/"
-                    + mavenPathFor("org.lwjgl", artifact, "3.3.6", "natives-windows");
-            if (!httpDownload(url, target, nullptr, error)) {
-                return false;
-            }
+        if (!LibraryTable::instance().ensure("org.lwjgl", artifact, "3.3.6",
+                                             "natives-windows",
+                                             "https://repo1.maven.org/maven2/", error)) {
+            return false;
         }
     }
     return true;
@@ -239,69 +222,26 @@ bool writeMclhrManifest(const Instance& instance, std::string* error) {
     manifest["modules"] = nlohmann::json::array();
 
     nlohmann::json libraries = nlohmann::json::array();
-    for (const char* component : {"base", "graphics", "controls"}) {
-        libraries.push_back({
-            {"group", "org.openjfx"},
-            {"artifact", std::string("javafx-") + component},
-            {"version", kJavaFxVersion},
-            {"classifier", "win"},
-        });
-    }
-
-    static const struct { const char* group; const char* artifact; const char* version; } hmclDeps[] = {
-        {"org.apache.logging.log4j", "log4j-api", "2.24.3"},
-        {"org.apache.logging.log4j", "log4j-core", "2.24.3"},
-        {"org.apache.logging.log4j", "log4j-slf4j2-impl", "2.24.3"},
-        {"org.slf4j", "slf4j-api", "2.0.16"},
-        {"com.google.code.gson", "gson", "2.10.1"},
-        {"com.google.guava", "guava", "33.0.0-jre"},
-        {"com.google.guava", "failureaccess", "1.0.2"},
-        {"com.google.guava", "listenablefuture", "9999.0-empty-to-avoid-conflict-with-guava"},
-        {"com.google.code.findbugs", "jsr305", "3.0.2"},
-        {"org.checkerframework", "checker-qual", "3.41.0"},
-        {"com.google.errorprone", "error_prone_annotations", "2.23.0"},
-        {"org.ow2.sat4j", "org.ow2.sat4j.core", "2.3.6"},
-        {"org.ow2.sat4j", "org.ow2.sat4j.pb", "2.3.6"},
-        {"org.lwjgl", "lwjgl", "3.3.6"},
-        {"org.lwjgl", "lwjgl-glfw", "3.3.6"},
-        {"org.lwjgl", "lwjgl-opengl", "3.3.6"},
-    };
-    for (const auto& dependency : hmclDeps) {
-        libraries.push_back({
-            {"group", dependency.group},
-            {"artifact", dependency.artifact},
-            {"version", dependency.version},
-        });
-    }
-
-    static const char* lwjglArtifacts[] = {"lwjgl", "lwjgl-glfw", "lwjgl-opengl"};
-    for (const char* artifact : lwjglArtifacts) {
-        libraries.push_back({{"group", "org.lwjgl"}, {"artifact", artifact}, {"version", "3.3.6"}});
-        libraries.push_back({{"group", "org.lwjgl"}, {"artifact", artifact},
-                             {"version", "3.3.6"}, {"classifier", "natives-windows"}});
-    }
-
-    const fs::path profileFile = Workspace::get().fabricDir(instance) / "profile.json";
-    if (fs::exists(profileFile)) {
-        try {
-            const auto profile = nlohmann::json::parse(readFile(profileFile));
-            for (const auto& library : profile.value("libraries", nlohmann::json::array())) {
-                std::string group, artifact, version, classifier;
-                parseCoordinate(library.value("name", ""), group, artifact, version, classifier);
-                if (!group.empty()) {
-                    libraries.push_back({
-                        {"group", group},
-                        {"artifact", artifact},
-                        {"version", version},
-                        {"classifier", classifier},
-                    });
-                }
-            }
-        } catch (...) {
-            // 清单写不完整不阻塞启动
+    std::set<std::string> written;
+    for (const auto& entry : LibraryTable::instance().entries()) {
+        if (entry.group.empty()) {
+            continue;
         }
+        const std::string key = entry.group + ":" + entry.artifact + ":"
+                + entry.version + ":" + entry.classifier;
+        if (!written.insert(key).second) {
+            continue;
+        }
+        nlohmann::json library = {
+            {"group", entry.group},
+            {"artifact", entry.artifact},
+            {"version", entry.version},
+        };
+        if (!entry.classifier.empty()) {
+            library["classifier"] = entry.classifier;
+        }
+        libraries.push_back(std::move(library));
     }
-
     manifest["modules"].push_back({
         {"id", "game"},
         {"libraries", libraries},

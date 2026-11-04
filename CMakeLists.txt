@@ -60,6 +60,7 @@ add_library(FLFLauncherCore STATIC
     src/core/http.cpp
     src/core/meta.cpp
     src/core/installer.cpp
+    src/core/library_table.cpp
     src/core/launcher.cpp
     src/core/mods.cpp
     src/core/quickstart_config.cpp
