@@ -1369,8 +1369,22 @@ void MainWindow::launchSelected() {
     if (instance->validateBeforeLaunch && Workspace::get().config().validateBeforeLaunch) {
         std::string validationError;
         if (!validateInstanceFiles(*instance, &validationError)) {
-            showToast("文件校验失败", qs(validationError), true);
-            return;
+            const auto choice = QMessageBox::warning(
+                    this, "文件校验失败",
+                    qs(validationError) + "\n\n是否尝试修复配置并重试？",
+                    QMessageBox::Yes | QMessageBox::No);
+            if (choice == QMessageBox::Yes) {
+                std::string repairError;
+                if (!repairInstanceMetadata(*instance, &repairError)
+                        || !validateInstanceFiles(*instance, &validationError)) {
+                    showToast("修复失败", qs(repairError.empty() ? validationError : repairError), true);
+                    return;
+                }
+                showToast("已修复配置", "重新校验通过，继续启动", false);
+            } else {
+                showToast("文件校验失败", qs(validationError), true);
+                return;
+            }
         }
     }
     if (instance->checkUpdatesBeforeLaunch && Workspace::get().config().checkUpdatesBeforeLaunch) {

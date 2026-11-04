@@ -433,6 +433,9 @@ bool installFlfDependencies(const FlfRelease& release, const ProgressFn& progres
     }
     return true;
 }
+bool repairInstanceMetadata(Instance& instance, std::string* error) {
+    return writeMclhrManifest(instance, error);
+}
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error) {
     std::error_code ec;
     fs::create_directories(Workspace::get().profileDir(instance), ec);
