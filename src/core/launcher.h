@@ -13,6 +13,8 @@ struct LaunchPlan {
     std::string program;
     std::vector<std::string> arguments;
     fs::path workingDir;
+    /// 实际使用的启动协议（legacy-jar / knot），便于诊断。
+    std::string provider;
 };
 
 LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart);

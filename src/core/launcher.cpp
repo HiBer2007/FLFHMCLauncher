@@ -42,6 +42,121 @@ std::string joinCommand(const LaunchPlan& plan) {
     return stream.str();
 }
 
+/// 版本号按点分段比较，无法解析时返回 false。
+bool versionAtLeast(const std::string& version, int major, int minor, int patch) {
+    int parts[3] = {0, 0, 0};
+    int index = 0;
+    for (char c : version) {
+        if (c == '.') {
+            if (++index >= 3) break;
+        } else if (c >= '0' && c <= '9') {
+            parts[index] = parts[index] * 10 + (c - '0');
+        } else {
+            break;
+        }
+    }
+    if (parts[0] != major) return parts[0] > major;
+    if (parts[1] != minor) return parts[1] > minor;
+    return parts[2] >= patch;
+}
+
+/// 启动方式提供者。新增 FLFHMCL 启动协议时只需实现并注册一个 Provider。
+class LaunchProvider {
+public:
+    virtual ~LaunchProvider() = default;
+    virtual std::string id() const = 0;
+    virtual bool supports(const Instance& instance) const = 0;
+    virtual void configure(LaunchPlan& plan, const Workspace& workspace,
+                           const Instance& instance, bool quickStart) const = 0;
+
+protected:
+    static void addCommon(LaunchPlan& plan, const Workspace& workspace,
+                          const Instance& instance, const fs::path& gameDir,
+                          const fs::path& hmclHome) {
+        plan.arguments.insert(plan.arguments.end(), {
+            "-javaagent:" + workspace.agentJar(instance).string(),
+            "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
+            "-Dflfhmcl.gameDir=" + gameDir.string(),
+            "-Dflf.instance=" + instance.id,
+            "-Dflf.loader.version=" + instance.loaderVersion,
+            "-Dflf.mclhr.manifest=" + workspace.manifestPath(instance).string(),
+            "-Dflf.profile=" + workspace.profileDir(instance).string(),
+            "-Dflf.version=" + instance.agentVersion,
+            "-Dflf.home=" + workspace.home().string(),
+            "-Dflfhmcl.update.managed=true",
+            "-Dhmcl.home=" + hmclHome.string(),
+            "-Dhmcl.dir=" + hmclHome.string(),
+        });
+    }
+};
+
+/// 旧版 FLFHMCL（<= 2.1.4）：以 -jar HMCL 启动，由 Agent 拦截入口。
+class LegacyJarProvider final : public LaunchProvider {
+public:
+    std::string id() const override { return "legacy-jar"; }
+    bool supports(const Instance&) const override { return true; }
+    void configure(LaunchPlan& plan, const Workspace& workspace,
+                   const Instance& instance, bool quickStart) const override {
+        const fs::path gameDir = workspace.resolveMinecraft(instance);
+        const fs::path hmclHome = workspace.resolveHmclHome(instance);
+        addCommon(plan, workspace, instance, gameDir, hmclHome);
+        plan.arguments.push_back("-jar");
+        plan.arguments.push_back(workspace.hmclJar(instance).string());
+        if (quickStart) {
+            plan.arguments.push_back("--flf-instance=" + instance.id);
+        }
+    }
+};
+
+/// 新版 FLFHMCL（>= 2.1.5）：直接启动 KnotClient，HMCL 由 Fabric 加载。
+class KnotProvider final : public LaunchProvider {
+public:
+    std::string id() const override { return "knot"; }
+    bool supports(const Instance& instance) const override {
+        return versionAtLeast(instance.agentVersion, 2, 1, 5);
+    }
+    void configure(LaunchPlan& plan, const Workspace& workspace,
+                   const Instance& instance, bool quickStart) const override {
+        const fs::path gameDir = workspace.resolveMinecraft(instance);
+        const fs::path hmclHome = workspace.resolveHmclHome(instance);
+        addCommon(plan, workspace, instance, gameDir, hmclHome);
+        plan.arguments.insert(plan.arguments.end(), {
+            "-Dflf.knot.direct=true",
+            "-Dfabric.addMods=" + workspace.agentJar(instance).string(),
+            "-Dflf.hmcl.jar=" + workspace.hmclJar(instance).string(),
+            "-cp",
+            workspace.agentJar(instance).string(),
+            "net.fabricmc.loader.impl.launch.knot.KnotClient",
+        });
+        plan.arguments.push_back("--gameDir");
+        plan.arguments.push_back(gameDir.string());
+        plan.arguments.push_back("--hmclMainClass");
+        plan.arguments.push_back("org.jackhuang.hmcl.Launcher");
+        if (quickStart) {
+            plan.arguments.push_back("--flf-instance=" + instance.id);
+        }
+    }
+};
+
+const std::vector<std::unique_ptr<LaunchProvider>>& launchProviders() {
+    static const std::vector<std::unique_ptr<LaunchProvider>> providers = [] {
+        std::vector<std::unique_ptr<LaunchProvider>> list;
+        list.push_back(std::make_unique<KnotProvider>());
+        list.push_back(std::make_unique<LegacyJarProvider>());
+        return list;
+    }();
+    return providers;
+}
+
+const LaunchProvider& providerFor(const Instance& instance) {
+    for (const auto& provider : launchProviders()) {
+        if (provider->supports(instance)) {
+            return *provider;
+        }
+    }
+    return *launchProviders().back();
+}
+
 } // namespace
 
 LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
@@ -56,42 +171,16 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
     }
 
     const Workspace& workspace = Workspace::get();
-    // HMCL 以 user.dir 为基准找 .minecraft；.hmcl 由 hmcl.home/hmcl.dir 指定。
-    // 默认与 .flfhmcl 同级；开启隔离时放到 .launcher/<uuid>/ 下。
     const fs::path gameDir = workspace.resolveMinecraft(instance);
     const fs::path hmclHome = workspace.resolveHmclHome(instance);
-    const fs::path base = gameDir.parent_path();
     std::error_code ec;
     fs::create_directories(gameDir, ec);
     fs::create_directories(hmclHome, ec);
-    plan.workingDir = base;
-    plan.arguments = {
-        "-javaagent:" + workspace.agentJar(instance).string(),
-        "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
-        "-Dflfhmcl.gameDir=" + gameDir.string(),
-        "-Dflf.instance=" + instance.id,
-        "-Dflf.loader.version=" + instance.loaderVersion,
-        "-Dflf.mclhr.manifest=" + workspace.manifestPath(instance).string(),
-        "-Dflf.profile=" + workspace.profileDir(instance).string(),
-        "-Dflf.version=" + instance.agentVersion,
-        "-Dflf.home=" + workspace.home().string(),
-        "-Dflfhmcl.update.managed=true",
-        "-Dflf.knot.direct=true",
-        "-Dfabric.addMods=" + workspace.agentJar(instance).string(),
-        "-Dflf.hmcl.jar=" + workspace.hmclJar(instance).string(),
-        "-Dhmcl.home=" + hmclHome.string(),
-        "-Dhmcl.dir=" + hmclHome.string(),
-        "-cp",
-        workspace.agentJar(instance).string(),
-        "net.fabricmc.loader.impl.launch.knot.KnotClient",
-        "--gameDir",
-        gameDir.string(),
-        "--hmclMainClass",
-        "org.jackhuang.hmcl.Launcher",
-    };
-    if (quickStart) {
-        plan.arguments.push_back("--flf-instance=" + instance.id);
-    }
+    plan.workingDir = gameDir.parent_path();
+
+    const LaunchProvider& provider = providerFor(instance);
+    plan.provider = provider.id();
+    provider.configure(plan, workspace, instance, quickStart);
     return plan;
 }
 
