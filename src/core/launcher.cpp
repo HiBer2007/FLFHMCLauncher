@@ -70,6 +70,7 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
         "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
         "-Dflfhmcl.gameDir=" + gameDir.string(),
         "-Dflf.instance=" + instance.id,
+        "-Dflf.loader.version=" + instance.loaderVersion,
         "-Dflf.mclhr.manifest=" + workspace.manifestPath(instance).string(),
         "-Dflf.profile=" + workspace.profileDir(instance).string(),
         "-Dflf.home=" + workspace.home().string(),

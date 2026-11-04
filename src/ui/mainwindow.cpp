@@ -650,7 +650,7 @@ void MainWindow::beginInstall() {
             ? ss(createFabric_->currentData().toString()) : "0.19.5";
     instance.hmclVersion = createHmcl_ ? ss(createHmcl_->currentData().toString()) : "";
     instance.isolated = createIsolated_ && createIsolated_->isChecked();
-    instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1.2";
+    instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1.3";
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
     installDetailBars_.clear();
@@ -1237,7 +1237,7 @@ void MainWindow::startAgentLoad() {
                 if (version.contains('-')) agentPreview_.append(version);
                 else agentStable_.append(version);
             }
-            if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1.2" : latest);
+            if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1.3" : latest);
             fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
             const int index = createAgent_->findData(latest);
             if (index >= 0) createAgent_->setCurrentIndex(index);
@@ -1502,9 +1502,32 @@ void MainWindow::launchSelected() {
                     const QString summary = details.isEmpty()
                             ? QStringLiteral("未从输出中找到异常行，请查看实例日志。")
                             : details.join("\n");
-                    QMessageBox::warning(this, "HMCL 异常退出",
-                            QStringLiteral("退出代码：%1\n\n%2").arg(failed && code == 0 ? 1 : code).arg(summary));
-                    showToast("HMCL 异常退出", QStringLiteral("退出代码 %1").arg(code), true);
+                    QString cause;
+                    if (text.contains("duplicate fabric loader")) {
+                        cause = "检测到重复的 Fabric Loader 版本";
+                    } else if (text.contains("Bootstrap failed")) {
+                        cause = "Fabric Loader 引导失败";
+                    } else if (text.contains("UnsupportedClassVersion")) {
+                        cause = "Java 版本不匹配";
+                    } else if (text.contains("OutOfMemoryError")) {
+                        cause = "内存不足";
+                    } else {
+                        cause = "HMCL 异常退出";
+                    }
+                    QMessageBox box(this);
+                    box.setWindowTitle("HMCL 异常退出");
+                    box.setText(cause);
+                    box.setInformativeText(QStringLiteral("退出代码：%1\n\n%2")
+                            .arg(failed && code == 0 ? 1 : code).arg(summary));
+                    auto* repairButton = box.addButton("修复实例", QMessageBox::AcceptRole);
+                    box.addButton("关闭", QMessageBox::RejectRole);
+                    box.exec();
+                    if (box.clickedButton() == repairButton) {
+                        if (Instance* target = Workspace::get().find(ss(uuid))) {
+                            beginRepair(*target);
+                        }
+                    }
+                    showToast("HMCL 异常退出", cause, true);
                 }, Qt::QueuedConnection);
             },
             &error);

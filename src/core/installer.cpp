@@ -443,6 +443,10 @@ bool repairInstance(Instance& instance, const ProgressFn& progress, std::string*
     if (!ensureJava(instance, progress, error)) return false;
 
     progress("检查 FLFHMCL Agent", 20);
+    const FlfRelease latestAgent = fetchFlfRelease("flfhmcl", nullptr);
+    if (latestAgent.ok && !latestAgent.version.empty()) {
+        instance.agentVersion = latestAgent.version;
+    }
     if (!ensureAgent(instance.agentVersion, progress, error)) return false;
 
     progress("检查 HMCL", 40);
