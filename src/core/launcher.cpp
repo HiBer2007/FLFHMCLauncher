@@ -96,6 +96,10 @@ bool validateInstanceFiles(const Instance& instance, std::string* error) {
     const Workspace& workspace = Workspace::get();
     if (!fs::exists(workspace.agentJar(instance))) return fail("FLFHMCL Agent 不存在");
     if (!fs::exists(workspace.hmclJar(instance))) return fail("HMCL jar 不存在");
+    if (!instance.hmclSha1.empty()
+            && sha1File(workspace.hmclJar(instance)) != instance.hmclSha1) {
+        return fail("HMCL jar SHA-1 校验失败");
+    }
 
     const fs::path manifestPath = workspace.manifestPath(instance);
     if (!fs::exists(manifestPath)) return fail("mclhr 清单不存在");

@@ -67,6 +67,8 @@ private:
     void refreshManage();
     void refreshMods();
     void beginInstall();
+    void beginRepair(const Instance& instance);
+    void finishRepair(const Instance& instance, bool ok, const QString& error);
     void fillVersionCombo(QComboBox* channel, QComboBox* version,
                           const QStringList& stable, const QStringList& preview);
     void startAgentLoad();
@@ -133,6 +135,7 @@ private:
     QPushButton* installRetry_ = nullptr;
     QPropertyAnimation* installAnim_ = nullptr;
     bool installFailed_ = false;
+    bool repairMode_ = false;
     int lastInstallPercent_ = 0;
     QListWidget* instanceList_ = nullptr;
     QListWidget* modsList_ = nullptr;

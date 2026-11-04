@@ -27,6 +27,7 @@ struct Instance {
     std::string javaPath;      // 空 = 自动
     std::string agentVersion;  // FLFHMCL Agent 版本
     std::string hmclVersion;   // HMCL 版本
+    std::string hmclSha1;      // HMCL jar SHA-1
     Layer mods;
     Layer minecraft;
     Layer hmclHome;

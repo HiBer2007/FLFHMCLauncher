@@ -69,6 +69,7 @@ nlohmann::json toJson(const Instance& instance) {
         {"uuid", instance.uuid},
         {"agentVersion", instance.agentVersion},
         {"hmclVersion", instance.hmclVersion},
+        {"hmclSha1", instance.hmclSha1},
         {"id", instance.id},
         {"name", instance.name},
         {"gameVersion", instance.gameVersion},
@@ -92,6 +93,7 @@ Instance instanceFromJson(const nlohmann::json& json) {
     instance.uuid = json.value("uuid", "");
     instance.agentVersion = json.value("agentVersion", "");
     instance.hmclVersion = json.value("hmclVersion", "");
+    instance.hmclSha1 = json.value("hmclSha1", "");
     instance.id = json.value("id", "");
     instance.name = json.value("name", instance.id);
     instance.gameVersion = json.value("gameVersion", "");

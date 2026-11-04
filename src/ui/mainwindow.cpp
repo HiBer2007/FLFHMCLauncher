@@ -880,6 +880,71 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
         if (i < installStepToggles_.size()) installStepToggles_[i]->setText(show ? "▾" : "▸");
     }
 }
+void MainWindow::beginRepair(const Instance& instance) {
+    repairMode_ = true;
+    if (installStepsLayout_) {
+        const QStringList names = {"检查 Java", "检查 Agent", "检查 HMCL",
+                                   "检查 Fabric Loader", "补全依赖库",
+                                   "重建配置", "重新校验"};
+        for (int i = 0; i < names.size() && i < installStepLabels_.size(); ++i) {
+            installStepLabels_[i]->setText("· " + names[i]);
+            installStepBars_[i]->setRange(0, 0);
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("pending");
+            while (QLayoutItem* item = installStepDetails_[i]->takeAt(0)) {
+                if (item->widget()) item->widget()->deleteLater();
+                delete item;
+            }
+        }
+        installDetailBars_.clear();
+        installDetailPercents_.clear();
+        installStarted_.clear();
+        installCompleted_.clear();
+    }
+    if (installRetry_) installRetry_->hide();
+    installTitle_->setText("正在修复 " + qs(instance.name));
+    installPercent_->setText("pending");
+    installBar_->setRange(0, 0);
+    installRightBar_->setRange(0, 0);
+    showPage(6);
+
+    Instance work = instance;
+    std::thread([this, work]() mutable {
+        std::string error;
+        const bool ok = repairInstance(work, [this](const std::string& step, int percent) {
+            QMetaObject::invokeMethod(this, [this, step = qs(step), percent]() {
+                updateInstallStep(step, percent);
+            }, Qt::QueuedConnection);
+        }, &error);
+        QMetaObject::invokeMethod(this, [this, work, ok, error = qs(error)]() {
+            finishRepair(work, ok, error);
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void MainWindow::finishRepair(const Instance& instance, bool ok, const QString& error) {
+    repairMode_ = false;
+    if (!ok) {
+        installFailed_ = true;
+        installTitle_->setText("修复失败");
+        installPercent_->setText("失败");
+        if (installRetry_) installRetry_->show();
+        showToast("修复失败", error, true);
+        return;
+    }
+    Instance* target = Workspace::get().find(instance.uuid);
+    if (target) {
+        *target = instance;
+        Workspace::get().saveInstances();
+    }
+    std::string validationError;
+    if (target && !validateInstanceFiles(*target, &validationError)) {
+        showToast("修复后校验失败", qs(validationError), true);
+        return;
+    }
+    refreshInstances();
+    showPage(0);
+    showToast("修复完成", "实例已恢复，可以启动", false);
+}
 void MainWindow::finishInstall(const Instance& instance, bool ok, const QString& error) {
     if (!ok) {
         installFailed_ = true;
@@ -1369,22 +1434,9 @@ void MainWindow::launchSelected() {
     if (instance->validateBeforeLaunch && Workspace::get().config().validateBeforeLaunch) {
         std::string validationError;
         if (!validateInstanceFiles(*instance, &validationError)) {
-            const auto choice = QMessageBox::warning(
-                    this, "文件校验失败",
-                    qs(validationError) + "\n\n是否尝试修复配置并重试？",
-                    QMessageBox::Yes | QMessageBox::No);
-            if (choice == QMessageBox::Yes) {
-                std::string repairError;
-                if (!repairInstanceMetadata(*instance, &repairError)
-                        || !validateInstanceFiles(*instance, &validationError)) {
-                    showToast("修复失败", qs(repairError.empty() ? validationError : repairError), true);
-                    return;
-                }
-                showToast("已修复配置", "重新校验通过，继续启动", false);
-            } else {
-                showToast("文件校验失败", qs(validationError), true);
-                return;
-            }
+            showToast("文件校验失败", qs(validationError) + "，正在尝试修复", false);
+            beginRepair(*instance);
+            return;
         }
     }
     if (instance->checkUpdatesBeforeLaunch && Workspace::get().config().checkUpdatesBeforeLaunch) {

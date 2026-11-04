@@ -20,6 +20,7 @@ bool ensureAgent(const std::string& version, const ProgressFn& progress, std::st
 /// 创建一个可启动的实例：Java、JavaFX、Fabric、HMCL、Agent、目录与清单。
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error);
 bool repairInstanceMetadata(Instance& instance, std::string* error);
+bool repairInstance(Instance& instance, const ProgressFn& progress, std::string* error);
 
 /// 首次运行释放 CrashTracker.exe（GitHub 最新 Release），并放到启动器同目录。
 bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& progress,

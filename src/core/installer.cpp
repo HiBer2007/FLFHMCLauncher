@@ -274,6 +274,7 @@ bool installHmcl(Instance& instance, const ProgressFn& progress, std::string* er
     }
     Workspace::get().config().hmclVersion = release.version;
     instance.hmclVersion = release.version;
+    instance.hmclSha1 = release.sha1;
     progress("HMCL " + release.version + " 已就绪", 88);
     return true;
 }
@@ -434,34 +435,44 @@ bool installFlfDependencies(const FlfRelease& release, const ProgressFn& progres
     return true;
 }
 bool repairInstanceMetadata(Instance& instance, std::string* error) {
-    const ProgressFn quiet = [](const std::string&, int) {};
-    // 1. Java
-    if (!ensureJava(instance, quiet, error)) {
-        return false;
+    return repairInstance(instance, [](const std::string&, int) {}, error);
+}
+
+bool repairInstance(Instance& instance, const ProgressFn& progress, std::string* error) {
+    progress("检查 Java", 5);
+    if (!ensureJava(instance, progress, error)) return false;
+
+    progress("检查 FLFHMCL Agent", 20);
+    if (!ensureAgent(instance.agentVersion, progress, error)) return false;
+
+    progress("检查 HMCL", 40);
+    const fs::path hmcl = Workspace::get().hmclJar(instance);
+    const bool hmclValid = fs::exists(hmcl)
+            && (instance.hmclSha1.empty() || sha1File(hmcl) == instance.hmclSha1);
+    if (!hmclValid) {
+        std::error_code ec;
+        fs::remove(hmcl, ec);
+        if (!installHmcl(instance, progress, error)) return false;
     }
-    // 2. Agent
-    if (!ensureAgent(instance.agentVersion, quiet, error)) {
-        return false;
-    }
-    // 3. HMCL
-    if (!fs::exists(Workspace::get().hmclJar(instance))) {
-        if (!installHmcl(instance, quiet, error)) {
-            return false;
-        }
-    }
-    // 4. 选定 Fabric Loader
+
+    progress("检查 Fabric Loader", 65);
     if (!LibraryTable::instance().ensure("net.fabricmc", "fabric-loader",
                                          instance.loaderVersion, "",
                                          "https://maven.fabricmc.net/", error)) {
         return false;
     }
-    // 5. 补全记录表中的缺失库
-    for (const auto& entry : LibraryTable::instance().entries()) {
-        if (!LibraryTable::instance().restore(entry, error)) {
-            return false;
-        }
+
+    const auto& entries = LibraryTable::instance().entries();
+    int index = 0;
+    for (const auto& entry : entries) {
+        if (!LibraryTable::instance().restore(entry, error)) return false;
+        ++index;
+        progress("补全库 " + std::to_string(index) + "/" + std::to_string(entries.size())
+                         + ": " + entry.artifact + "-" + entry.version,
+                 70 + index * 20 / std::max<int>(1, static_cast<int>(entries.size())));
     }
-    // 2. 重新生成 profile 配置
+
+    progress("重建 profile", 95);
     std::error_code ec;
     const fs::path profile = Workspace::get().profileDir(instance);
     fs::create_directories(profile, ec);
@@ -474,7 +485,8 @@ bool repairInstanceMetadata(Instance& instance, std::string* error) {
         {"manifest", Workspace::get().manifestPath(instance).string()},
     };
     std::ofstream(profile / "launch.json") << launch.dump(2);
-    // 3. 重新生成清单
+
+    progress("重建 mclhr 清单", 98);
     return writeMclhrManifest(instance, error);
 }
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error) {
