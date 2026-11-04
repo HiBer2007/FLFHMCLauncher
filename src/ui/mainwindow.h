@@ -12,10 +12,14 @@ class QWidget;
 class QPushButton;
 class QCheckBox;
 class QListWidget;
+class QTreeWidget;
+class QPropertyAnimation;
 class QComboBox;
 class QLineEdit;
 class QProgressBar;
 class QListWidget;
+class QTreeWidget;
+class QPropertyAnimation;
 
 namespace HiBerGUI {
 class ToastNotification;
@@ -108,7 +112,11 @@ private:
     QLabel* installTitle_ = nullptr;
     QLabel* installPercent_ = nullptr;
     QProgressBar* installBar_ = nullptr;
-    QListWidget* installTasks_ = nullptr;
+    QTreeWidget* installTasks_ = nullptr;
+    QProgressBar* installRightBar_ = nullptr;
+    QPushButton* installRetry_ = nullptr;
+    QPropertyAnimation* installAnim_ = nullptr;
+    bool installFailed_ = false;
     QListWidget* instanceList_ = nullptr;
     QListWidget* modsList_ = nullptr;
     QLabel* modsTitle_ = nullptr;

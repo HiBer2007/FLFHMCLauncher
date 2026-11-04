@@ -192,6 +192,10 @@ bool httpDownload(const std::string& url,
                   const fs::path& destination,
                   const std::function<bool(std::int64_t, std::int64_t)>& progress,
                   std::string* error) {
+    if (url.empty() || url.size() < 10) {
+        if (error) *error = "下载 URL 为空";
+        return false;
+    }
     UrlParts parts;
     if (!crackUrl(url, parts, error)) {
         return false;

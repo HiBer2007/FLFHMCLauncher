@@ -163,7 +163,8 @@ bool installFabric(Instance& instance, const ProgressFn& progress, std::string* 
     int index = 0;
     for (const auto& library : libraries) {
         const std::string name = library.value("name", "");
-        const std::string baseUrl = library.value("url", "https://maven.fabricmc.net/");
+        std::string baseUrl = library.value("url", "");
+        if (baseUrl.empty()) baseUrl = "https://maven.fabricmc.net/";
         std::string group, artifact, version, classifier;
         parseCoordinate(name, group, artifact, version, classifier);
         if (group.empty()) {

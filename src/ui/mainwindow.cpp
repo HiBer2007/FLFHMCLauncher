@@ -21,6 +21,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QTreeWidget>
 #include <QMenu>
 #include <QMessageBox>
 #include <QProgressDialog>
@@ -551,8 +552,17 @@ QWidget* MainWindow::buildInstallPage() {
     installTitle_ = new QLabel("正在准备…", right);
     installTitle_->setObjectName("section");
     rightLayout->addWidget(installTitle_);
-    installTasks_ = new QListWidget(right);
+    installRightBar_ = new QProgressBar(right);
+    installRightBar_->setRange(0, 100);
+    rightLayout->addWidget(installRightBar_);
+    installTasks_ = new QTreeWidget(right);
+    installTasks_->setHeaderHidden(true);
     rightLayout->addWidget(installTasks_, 1);
+    installRetry_ = new QPushButton("重试", right);
+    installRetry_->setObjectName("primary");
+    installRetry_->hide();
+    rightLayout->addWidget(installRetry_, 0, Qt::AlignRight);
+    connect(installRetry_, &QPushButton::clicked, this, &MainWindow::beginInstall);
     layout->addWidget(right, 1);
     return page;
 }
@@ -604,7 +614,8 @@ void MainWindow::beginInstall() {
     for (const QString& step : {"准备 Java", "下载 JavaFX", "安装 Fabric",
                                 "安装依赖库", "下载 HMCL", "下载 FLFHMCL Agent",
                                 "写入实例配置"}) {
-        installTasks_->addItem("· " + step);
+        auto* item = new QTreeWidgetItem(installTasks_);
+        item->setText(0, "· " + step);
     }
     installBar_->setRange(0, 0);
     installPercent_->setText("准备中…");
@@ -628,8 +639,17 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
     if (!installTasks_ || !installBar_) return;
     if (installBar_->maximum() == 0) {
         installBar_->setRange(0, 100);
+        installRightBar_->setRange(0, 100);
     }
-    installBar_->setValue(percent);
+    if (!installAnim_) {
+        installAnim_ = new QPropertyAnimation(installBar_, "value", this);
+        installAnim_->setDuration(180);
+    }
+    installAnim_->stop();
+    installAnim_->setStartValue(installBar_->value());
+    installAnim_->setEndValue(percent);
+    installAnim_->start();
+    installRightBar_->setValue(percent);
     installPercent_->setText(QStringLiteral("%1 %").arg(percent));
     installTitle_->setText(step);
     int active = 0;
@@ -639,19 +659,27 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
     else if (percent >= 30) active = 3;
     else if (percent >= 10) active = 2;
     else if (percent >= 5) active = 1;
-    for (int i = 0; i < installTasks_->count(); ++i) {
-        QString text = installTasks_->item(i)->text();
+    for (int i = 0; i < installTasks_->topLevelItemCount(); ++i) {
+        QTreeWidgetItem* item = installTasks_->topLevelItem(i);
+        QString text = item->text(0);
         text.remove(0, 2);
-        if (i < active) installTasks_->item(i)->setText("✓ " + text);
-        else if (i == active) installTasks_->item(i)->setText("… " + text);
-        else installTasks_->item(i)->setText("· " + text);
+        if (i < active) item->setText(0, "✓ " + text);
+        else if (i == active) {
+            item->setText(0, "… " + text);
+            if (item->childCount() == 0 || item->child(item->childCount() - 1)->text(0) != step) {
+                new QTreeWidgetItem(item, QStringList{step});
+            }
+        } else item->setText(0, "· " + text);
     }
+    installTasks_->expandAll();
 }
 
 void MainWindow::finishInstall(const Instance& instance, bool ok, const QString& error) {
     if (!ok) {
-        showPage(3);
-        if (createError_) createError_->setText(error);
+        installFailed_ = true;
+        installTitle_->setText("安装失败");
+        installPercent_->setText("失败");
+        if (installRetry_) installRetry_->show();
         showToast("安装失败", error, true);
         return;
     }

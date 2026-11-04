@@ -16,6 +16,7 @@ struct LibraryRecord {
     std::string classifier;
     std::string file;
     std::string source;
+    std::string sha256;
     std::uintmax_t size = 0;
 };
 

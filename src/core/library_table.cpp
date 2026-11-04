@@ -72,6 +72,7 @@ void LibraryTable::load() {
             record.classifier = item.value("classifier", "");
             record.file = item.value("file", "");
             record.source = item.value("source", "");
+            record.sha256 = item.value("sha256", "");
             record.size = item.value("size", static_cast<std::uintmax_t>(0));
             if (!record.file.empty()) {
                 entries_.push_back(std::move(record));
@@ -94,6 +95,7 @@ void LibraryTable::save() {
             {"classifier", entry.classifier},
             {"file", entry.file},
             {"source", entry.source},
+            {"sha256", entry.sha256},
             {"size", entry.size},
         });
     }
@@ -120,6 +122,10 @@ bool LibraryTable::ensure(const std::string& group,
                           const std::string& classifier,
                           const std::string& baseUrl,
                           std::string* error) {
+    if (baseUrl.empty() || artifact.empty()) {
+        if (error) *error = "库坐标或下载源为空";
+        return false;
+    }
     const fs::path target = Workspace::get().librariesDir()
             / flatNameFor(group, artifact, version, classifier);
     const std::string key = keyOf(group, artifact, version, classifier);
@@ -132,15 +138,33 @@ bool LibraryTable::ensure(const std::string& group,
         }
     }
 
+    const fs::path cacheDir = Workspace::get().home() / "cache";
     std::error_code ec;
     const bool present = fs::exists(target, ec);
     if (present) {
         const auto size = fs::file_size(target, ec);
         if (!ec && (existing == nullptr || existing->size != size)) {
-            record({group, artifact, version, classifier, target.filename().string(), "", size});
+            LibraryRecord entry;
+            entry.group = group;
+            entry.artifact = artifact;
+            entry.version = version;
+            entry.classifier = classifier;
+            entry.file = target.filename().string();
+            entry.size = size;
+            entry.sha256 = sha256File(target);
+            record(entry);
             save();
         }
         return true;
+    }
+
+    // 目标缺失时按记录中的哈希从缓存恢复
+    if (existing != nullptr && !existing->sha256.empty()) {
+        const fs::path cached = cacheDir / existing->sha256;
+        if (fs::exists(cached)) {
+            fs::copy_file(cached, target, fs::copy_options::overwrite_existing, ec);
+            if (!ec) return true;
+        }
     }
 
     const std::string url = baseUrl + mavenPathFor(group, artifact, version, classifier);
@@ -148,8 +172,24 @@ bool LibraryTable::ensure(const std::string& group,
         return false;
     }
     const auto size = fs::file_size(target, ec);
-    record({group, artifact, version, classifier, target.filename().string(), url,
-            ec ? 0 : static_cast<std::uintmax_t>(size)});
+    const std::string hash = sha256File(target);
+    if (!hash.empty()) {
+        fs::create_directories(cacheDir, ec);
+        const fs::path cached = cacheDir / hash;
+        if (!fs::exists(cached)) {
+            fs::copy_file(target, cached, fs::copy_options::overwrite_existing, ec);
+        }
+    }
+    LibraryRecord entry;
+    entry.group = group;
+    entry.artifact = artifact;
+    entry.version = version;
+    entry.classifier = classifier;
+    entry.file = target.filename().string();
+    entry.source = url;
+    entry.size = ec ? 0 : static_cast<std::uintmax_t>(size);
+    entry.sha256 = hash;
+    record(entry);
     save();
     return true;
 }
