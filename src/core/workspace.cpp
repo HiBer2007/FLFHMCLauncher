@@ -68,6 +68,7 @@ nlohmann::json toJson(const Instance& instance) {
     return {
         {"uuid", instance.uuid},
         {"agentVersion", instance.agentVersion},
+        {"hmclVersion", instance.hmclVersion},
         {"id", instance.id},
         {"name", instance.name},
         {"gameVersion", instance.gameVersion},
@@ -87,6 +88,7 @@ Instance instanceFromJson(const nlohmann::json& json) {
     Instance instance;
     instance.uuid = json.value("uuid", "");
     instance.agentVersion = json.value("agentVersion", "");
+    instance.hmclVersion = json.value("hmclVersion", "");
     instance.id = json.value("id", "");
     instance.name = json.value("name", instance.id);
     instance.gameVersion = json.value("gameVersion", "");
@@ -253,6 +255,12 @@ fs::path Workspace::librariesDir() const {
     return home_ / "libraries";
 }
 
+fs::path Workspace::hmclJar(const Instance& instance) const {
+    if (!instance.hmclVersion.empty()) {
+        return home_ / "hmcl" / ("HMCL-" + instance.hmclVersion + ".jar");
+    }
+    return hmclJar();
+}
 fs::path Workspace::hmclJar() const {
     return home_ / "hmcl" / "HMCL.jar";
 }

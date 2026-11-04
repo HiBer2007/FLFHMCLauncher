@@ -79,6 +79,7 @@ private:
     QLineEdit* createName_ = nullptr;
     QComboBox* createAgent_ = nullptr;
     QComboBox* createHmcl_ = nullptr;
+    QComboBox* createFabric_ = nullptr;
     QCheckBox* createIsolated_ = nullptr;
     QLabel* createError_ = nullptr;
     QProgressBar* createBusy_ = nullptr;

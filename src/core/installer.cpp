@@ -240,14 +240,14 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
     return true;
 }
 
-bool installHmcl(const ProgressFn& progress, std::string* error) {
+bool installHmcl(Instance& instance, const ProgressFn& progress, std::string* error) {
     std::string fetchError;
-    const HmclRelease release = fetchHmclRelease(&fetchError);
+    const HmclRelease release = fetchHmclReleaseFor(instance.hmclVersion, &fetchError);
     if (!release.ok) {
         if (error) *error = "获取 HMCL 版本失败: " + fetchError;
         return false;
     }
-    const fs::path target = Workspace::get().hmclJar();
+    const fs::path target = Workspace::get().hmclJar(instance);
     if (!fs::exists(target) || sha1File(target) != release.sha1) {
         if (!httpDownload(release.jarUrl, target, nullptr, error)) {
             return false;
@@ -258,6 +258,7 @@ bool installHmcl(const ProgressFn& progress, std::string* error) {
         return false;
     }
     Workspace::get().config().hmclVersion = release.version;
+    instance.hmclVersion = release.version;
     progress("HMCL " + release.version + " 已就绪", 88);
     return true;
 }
@@ -415,7 +416,7 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
     }
 
     progress("安装 HMCL", 75);
-    if (!installHmcl(progress, error)) {
+    if (!installHmcl(instance, progress, error)) {
         return false;
     }
 

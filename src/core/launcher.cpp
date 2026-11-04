@@ -77,7 +77,7 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
         "-Dhmcl.home=" + hmclHome.string(),
         "-Dhmcl.dir=" + hmclHome.string(),
         "-jar",
-        workspace.hmclJar().string(),
+        workspace.hmclJar(instance).string(),
     };
     if (quickStart) {
         plan.arguments.push_back("--flf-instance=" + instance.id);

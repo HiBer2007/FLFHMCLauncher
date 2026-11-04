@@ -125,6 +125,31 @@ nlohmann::json fetchFabricProfile(const std::string& gameVersion,
     }
 }
 
+HmclRelease fetchHmclReleaseFor(const std::string& version, std::string* error) {
+    if (version.empty()) {
+        return fetchHmclRelease(error);
+    }
+    const HttpResult response = httpGet(
+            "https://hmcl.huangyuhui.net/api/update_link?version=" + version + "&channel=stable");
+    HmclRelease result;
+    if (!response.ok) {
+        result.error = response.error;
+        if (error) *error = result.error;
+        return result;
+    }
+    try {
+        const auto json = nlohmann::json::parse(response.body);
+        result.jarUrl = jsonString(json, "jar");
+        result.sha1 = jsonString(json, "jarsha1");
+        result.version = jsonString(json, "version", version);
+        result.ok = !result.jarUrl.empty();
+        if (!result.ok) result.error = "HMCL 更新接口缺少 jar";
+    } catch (const std::exception& e) {
+        result.error = std::string("解析 HMCL 版本失败: ") + e.what();
+    }
+    if (!result.ok && error) *error = result.error;
+    return result;
+}
 HmclRelease fetchHmclRelease(std::string* error) {
     HmclRelease release;
     const std::string url =

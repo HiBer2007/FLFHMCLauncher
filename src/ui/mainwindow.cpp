@@ -422,7 +422,14 @@ QWidget* MainWindow::buildCreatePage() {
     auto* hmclLabel = new QLabel("HMCL 版本（自动最新）", card);
     form->addWidget(hmclLabel);
     createHmcl_ = new QComboBox(card);
-    createHmcl_->addItem("自动使用最新 HMCL");
+    for (const char* version : {"自动使用最新 HMCL", "3.16.4", "3.16.3", "3.16.2",
+                                "3.16.1", "3.16.0", "3.15.2", "3.15.1", "3.14.1"}) {
+        if (QString(version).startsWith("自动")) {
+            createHmcl_->addItem(version, "");
+        } else {
+            createHmcl_->addItem(QString("HMCL ") + version, version);
+        }
+    }
     form->addWidget(createHmcl_);
 
     auto* agentLabel = new QLabel("FLFHMCL 版本", card);
@@ -436,12 +443,14 @@ QWidget* MainWindow::buildCreatePage() {
     createBusy_->hide();
     form->addWidget(createBusy_);
 
+    auto* fabricLabel = new QLabel("Fabric Loader 版本", card);
+    form->addWidget(fabricLabel);
+    createFabric_ = new QComboBox(card);
+    createFabric_->addItem("自动（最新）", "");
+    form->addWidget(createFabric_);
+
     createIsolated_ = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", card);
     form->addWidget(createIsolated_);
-
-    auto* fabric = new QLabel("Fabric：自动安装  ·  Forge / NeoForge：暂不支持", card);
-    fabric->setObjectName("hint");
-    form->addWidget(fabric);
 
     layout->addWidget(card);
     layout->addStretch();
@@ -522,7 +531,9 @@ void MainWindow::beginInstall() {
     instance.id = ss(id);
     instance.name = ss(name);
     instance.gameVersion = "1.21.1";
-    instance.loaderVersion = "0.19.5";
+    instance.loaderVersion = createFabric_ && !createFabric_->currentData().toString().isEmpty()
+            ? ss(createFabric_->currentData().toString()) : "0.19.5";
+    instance.hmclVersion = createHmcl_ ? ss(createHmcl_->currentData().toString()) : "";
     instance.isolated = createIsolated_ && createIsolated_->isChecked();
     instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1";
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
@@ -845,7 +856,13 @@ void MainWindow::createInstance() {
             }
             latest = qs(release.version);
         }
-        QMetaObject::invokeMethod(this, [this, versions, latest]() {
+        std::string fabricError;
+        const auto loaders = fetchFabricLoaders("1.21.1", &fabricError);
+        QStringList fabricVersions;
+        for (const auto& loader : loaders) {
+            fabricVersions.append(qs(loader));
+        }
+        QMetaObject::invokeMethod(this, [this, versions, latest, fabricVersions]() {
             if (createBusy_) createBusy_->hide();
             if (!createAgent_) return;
             createAgent_->setEnabled(true);
@@ -858,6 +875,13 @@ void MainWindow::createInstance() {
             }
             const int index = createAgent_->findData(latest);
             if (index >= 0) createAgent_->setCurrentIndex(index);
+            if (createFabric_) {
+                createFabric_->clear();
+                createFabric_->addItem("自动（最新）", "");
+                for (const QString& loader : fabricVersions) {
+                    createFabric_->addItem("Fabric " + loader, loader);
+                }
+            }
         }, Qt::QueuedConnection);
     }).detach();
 }
@@ -867,7 +891,9 @@ void MainWindow::runInstall(const QString& name, bool isolated, const QString& a
     instance.id = ss(makeId(name));
     instance.name = ss(name);
     instance.gameVersion = "1.21.1";
-    instance.loaderVersion = "0.19.5";
+    instance.loaderVersion = createFabric_ && !createFabric_->currentData().toString().isEmpty()
+            ? ss(createFabric_->currentData().toString()) : "0.19.5";
+    instance.hmclVersion = createHmcl_ ? ss(createHmcl_->currentData().toString()) : "";
     instance.isolated = isolated;
     instance.agentVersion = ss(agentVersion);
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
