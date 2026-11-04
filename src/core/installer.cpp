@@ -13,7 +13,38 @@
 namespace flf {
 namespace {
 
-constexpr const char* kJavaFxVersion = "17.0.13";
+/// JavaFX 主版本必须与 JRE/JDK 主版本一致（17/21/22/...）。
+std::string javaFxVersionFor(int javaMajor) {
+    switch (javaMajor) {
+        case 17: return "17.0.13";
+        case 21: return "21.0.13";
+        case 22: return "22.0.2";
+        case 23: return "23.0.2";
+        case 24: return "24.0.1";
+        default: return javaMajor >= 21 ? "21.0.13" : "17.0.13";
+    }
+}
+
+int detectJavaMajor(const std::string& javaExe) {
+    try {
+        fs::path home = fs::u8path(javaExe).parent_path().parent_path();
+        std::ifstream release(home / "release");
+        std::string line;
+        while (std::getline(release, line)) {
+            if (line.rfind("JAVA_VERSION=", 0) == 0) {
+                std::string value = line.substr(13);
+                if (!value.empty() && value.front() == '"') {
+                    value.erase(0, 1);
+                }
+                int major = std::atoi(value.c_str());
+                return major > 0 ? major : 21;
+            }
+        }
+    } catch (...) {
+        // fall through
+    }
+    return 21;
+}
 
 std::string mavenPathFor(const std::string& group,
                          const std::string& artifact,
@@ -99,15 +130,17 @@ bool ensureJava(Instance& instance, const ProgressFn& progress, std::string* err
     return true;
 }
 
-bool installJavaFx(const ProgressFn& progress, std::string* error) {
+bool installJavaFx(const Instance& instance, const ProgressFn& progress, std::string* error) {
+    const int javaMajor = detectJavaMajor(instance.javaPath);
+    const std::string javaFxVersion = javaFxVersionFor(javaMajor);
     for (const char* component : {"base", "graphics", "controls"}) {
         if (!LibraryTable::instance().ensure(
                 "org.openjfx", std::string("javafx-") + component,
-                kJavaFxVersion, "win", "https://repo1.maven.org/maven2/", error)) {
+                javaFxVersion, "win", "https://repo1.maven.org/maven2/", error)) {
             return false;
         }
     }
-    progress("JavaFX 已就绪", 25);
+    progress("JavaFX " + javaFxVersion + " 已就绪（JDK " + std::to_string(javaMajor) + "）", 25);
     return true;
 }
 
@@ -151,11 +184,17 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
         const char* artifact;
         const char* version;
     };
-    static const Dependency dependencies[] = {
+    // FLFHMCL Agent 自身依赖
+    static const Dependency flfDependencies[] = {
         {"org.apache.logging.log4j", "log4j-api", "2.24.3"},
         {"org.apache.logging.log4j", "log4j-core", "2.24.3"},
         {"org.apache.logging.log4j", "log4j-slf4j2-impl", "2.24.3"},
         {"org.slf4j", "slf4j-api", "2.0.16"},
+        {"org.ow2.sat4j", "org.ow2.sat4j.core", "2.3.6"},
+        {"org.ow2.sat4j", "org.ow2.sat4j.pb", "2.3.6"},
+    };
+    // HMCL 自身依赖
+    static const Dependency hmclDependencies[] = {
         {"com.google.code.gson", "gson", "2.10.1"},
         {"com.google.guava", "guava", "33.0.0-jre"},
         {"com.google.guava", "failureaccess", "1.0.2"},
@@ -163,26 +202,30 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
         {"com.google.code.findbugs", "jsr305", "3.0.2"},
         {"org.checkerframework", "checker-qual", "3.41.0"},
         {"com.google.errorprone", "error_prone_annotations", "2.23.0"},
-        {"org.ow2.sat4j", "org.ow2.sat4j.core", "2.3.6"},
-        {"org.ow2.sat4j", "org.ow2.sat4j.pb", "2.3.6"},
-        {"org.lwjgl", "lwjgl", "3.3.6"},
-        {"org.lwjgl", "lwjgl-glfw", "3.3.6"},
-        {"org.lwjgl", "lwjgl-opengl", "3.3.6"},
     };
 
-    int index = 0;
-    const int total = static_cast<int>(std::size(dependencies));
-    for (const auto& dependency : dependencies) {
-        if (!LibraryTable::instance().ensure(dependency.group, dependency.artifact,
-                                             dependency.version, "",
-                                             "https://repo1.maven.org/maven2/", error)) {
-            return false;
+    auto installAll = [&](const Dependency* list, std::size_t count,
+                          const char* owner, int basePercent, int span) {
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto& dependency = list[i];
+            if (!LibraryTable::instance().ensure(dependency.group, dependency.artifact,
+                                                 dependency.version, "",
+                                                 "https://repo1.maven.org/maven2/", error)) {
+                return false;
+            }
+            const int percent = basePercent + static_cast<int>((i + 1) * span / count);
+            progress(std::string(owner) + " " + std::to_string(i + 1) + "/" + std::to_string(count),
+                     percent);
         }
-        ++index;
-        progress("HMCL 依赖 " + std::to_string(index) + "/" + std::to_string(total),
-                 62 + index * 10 / total);
-    }
+        return true;
+    };
 
+    if (!installAll(flfDependencies, std::size(flfDependencies), "FLFHMCL 依赖", 62, 4)) {
+        return false;
+    }
+    if (!installAll(hmclDependencies, std::size(hmclDependencies), "HMCL 依赖", 66, 4)) {
+        return false;
+    }
     // LWJGL 各平台 natives
     static const char* lwjglArtifacts[] = {"lwjgl", "lwjgl-glfw", "lwjgl-opengl"};
     for (const char* artifact : lwjglArtifacts) {
@@ -221,10 +264,15 @@ bool writeMclhrManifest(const Instance& instance, std::string* error) {
     nlohmann::json manifest;
     manifest["modules"] = nlohmann::json::array();
 
+    const std::string javaFxVersion = javaFxVersionFor(detectJavaMajor(instance.javaPath));
     nlohmann::json libraries = nlohmann::json::array();
     std::set<std::string> written;
     for (const auto& entry : LibraryTable::instance().entries()) {
         if (entry.group.empty()) {
+            continue;
+        }
+        // JavaFX 必须与当前实例的 JDK 主版本一致，忽略其他版本
+        if (entry.group == "org.openjfx" && entry.version != javaFxVersion) {
             continue;
         }
         const std::string key = entry.group + ":" + entry.artifact + ":"
@@ -298,7 +346,7 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
     }
 
     progress("下载 JavaFX", 10);
-    if (!installJavaFx(progress, error)) {
+    if (!installJavaFx(instance, progress, error)) {
         return false;
     }
 
