@@ -469,7 +469,7 @@ QWidget* MainWindow::buildModsPage() {
 QWidget* MainWindow::buildInstanceCard(const Instance& instance) {
     auto* card = new QFrame(this);
     card->setObjectName("instanceCard");
-    card->setProperty("instanceId", qs(instance.id));
+    card->setProperty("instanceId", qs(instance.uuid));
     card->setAttribute(Qt::WA_StyledBackground, true);
     card->installEventFilter(this);
 
@@ -618,6 +618,7 @@ void MainWindow::createInstance() {
 
 void MainWindow::runInstall(const QString& name) {
     Instance instance;
+    instance.uuid = newInstanceUuid();
     instance.id = ss(makeId(name));
     instance.name = ss(name);
     instance.gameVersion = "1.21.1";
@@ -701,7 +702,7 @@ void MainWindow::refreshManage() {
     const auto& instances = Workspace::get().instances();
     for (const auto& instance : instances) {
         auto* item = new QListWidgetItem(qs(instance.name), instanceList_);
-        item->setData(Qt::UserRole, qs(instance.id));
+        item->setData(Qt::UserRole, qs(instance.uuid));
         if (instance.id == currentId_) {
             instanceList_->setCurrentItem(item);
         }

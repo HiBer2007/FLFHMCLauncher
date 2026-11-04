@@ -3,6 +3,10 @@
 #include "core/flf_paths.h"
 
 #include <fstream>
+#include <iomanip>
+#include <random>
+#include <sstream>
+#include <unordered_set>
 #include <stdexcept>
 
 namespace flf {
@@ -46,8 +50,23 @@ bool writeJson(const fs::path& file, const nlohmann::json& json) {
 
 } // namespace
 
+std::string newInstanceUuid() {
+    static std::mt19937_64 rng(std::random_device{}());
+    std::uniform_int_distribution<int> dist(0, 15);
+    std::ostringstream out;
+    out << std::hex;
+    for (int i = 0; i < 32; ++i) {
+        if (i == 8 || i == 12 || i == 16 || i == 20) out << "-";
+        if (i == 12) out << "4";
+        else if (i == 16) out << "a";
+        else out << dist(rng);
+    }
+    return out.str();
+}
+
 nlohmann::json toJson(const Instance& instance) {
     return {
+        {"uuid", instance.uuid},
         {"id", instance.id},
         {"name", instance.name},
         {"gameVersion", instance.gameVersion},
@@ -63,6 +82,7 @@ nlohmann::json toJson(const Instance& instance) {
 
 Instance instanceFromJson(const nlohmann::json& json) {
     Instance instance;
+    instance.uuid = json.value("uuid", "");
     instance.id = json.value("id", "");
     instance.name = json.value("name", instance.id);
     instance.gameVersion = json.value("gameVersion", "");
@@ -108,12 +128,24 @@ void Workspace::initialize() {
             std::ifstream in(instancesFile, std::ios::binary);
             nlohmann::json json;
             in >> json;
+            std::unordered_set<std::string> seenIds;
+            std::unordered_set<std::string> seenUuids;
             for (const auto& item : json.value("instances", nlohmann::json::array())) {
                 Instance instance = instanceFromJson(item);
-                if (!instance.id.empty()) {
-                    instances_.push_back(instance);
+                if (instance.id.empty()) {
+                    continue;
                 }
+                // 兼容旧数据：同一 id 的重复条目只保留一份（它们指向同一目录）
+                if (!seenIds.insert(instance.id).second) {
+                    continue;
+                }
+                if (instance.uuid.empty() || !seenUuids.insert(instance.uuid).second) {
+                    instance.uuid = newInstanceUuid();
+                    seenUuids.insert(instance.uuid);
+                }
+                instances_.push_back(instance);
             }
+            saveInstances();
         } catch (...) {
             // 实例文件损坏时保持为空
         }
@@ -137,6 +169,11 @@ std::vector<Instance>& Workspace::instances() {
 }
 
 Instance* Workspace::find(const std::string& id) {
+    for (auto& instance : instances_) {
+        if (!instance.uuid.empty() && instance.uuid == id) {
+            return &instance;
+        }
+    }
     for (auto& instance : instances_) {
         if (instance.id == id) {
             return &instance;

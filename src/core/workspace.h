@@ -18,6 +18,7 @@ struct Layer {
 };
 
 struct Instance {
+    std::string uuid;
     std::string id;
     std::string name;
     std::string gameVersion;
@@ -78,6 +79,7 @@ private:
     std::vector<Instance> instances_;
 };
 
+std::string newInstanceUuid();
 nlohmann::json toJson(const Instance& instance);
 Instance instanceFromJson(const nlohmann::json& json);
 
