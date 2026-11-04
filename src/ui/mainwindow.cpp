@@ -538,6 +538,8 @@ QWidget* MainWindow::buildInstallPage() {
     statLayout->addWidget(installPercent_);
     installBar_ = new QProgressBar(stats);
     installBar_->setRange(0, 100);
+    installBar_->setTextVisible(false);
+    installBar_->setFixedHeight(7);
     statLayout->addWidget(installBar_);
     auto* hint = new QLabel("下载在后台进行，界面不会卡住。", stats);
     hint->setObjectName("hint");
@@ -554,6 +556,8 @@ QWidget* MainWindow::buildInstallPage() {
     rightLayout->addWidget(installTitle_);
     installRightBar_ = new QProgressBar(right);
     installRightBar_->setRange(0, 100);
+    installRightBar_->setTextVisible(false);
+    installRightBar_->setFixedHeight(7);
     rightLayout->addWidget(installRightBar_);
     auto* scroll = new QScrollArea(right);
     scroll->setWidgetResizable(true);
@@ -618,23 +622,33 @@ void MainWindow::beginInstall() {
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
     installDetailBars_.clear();
+    installDetailPercents_.clear();
     if (installStepsLayout_) {
         while (installStepWidgets_.size() < 7) {
             auto* card = new QFrame(this);
             card->setObjectName("card");
             auto* layout = new QVBoxLayout(card);
             layout->setContentsMargins(10, 8, 10, 8);
+            auto* header = new QHBoxLayout();
             auto* label = new QLabel("· 等待", card);
+            auto* percent = new QLabel("0%", card);
+            percent->setObjectName("hint");
+            percent->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            header->addWidget(label, 1);
+            header->addWidget(percent);
+            layout->addLayout(header);
             auto* bar = new QProgressBar(card);
             bar->setRange(0, 100);
             bar->setValue(0);
-            layout->addWidget(label);
+            bar->setTextVisible(false);
+            bar->setFixedHeight(6);
             layout->addWidget(bar);
             auto* details = new QVBoxLayout();
             layout->addLayout(details);
             installStepsLayout_->insertWidget(installStepsLayout_->count() - 1, card);
             installStepWidgets_.append(card);
             installStepLabels_.append(label);
+            installStepPercents_.append(percent);
             installStepBars_.append(bar);
             installStepDetails_.append(details);
         }
@@ -644,6 +658,8 @@ void MainWindow::beginInstall() {
         for (int i = 0; i < names.size(); ++i) {
             installStepLabels_[i]->setText("· " + names[i]);
             installStepBars_[i]->setValue(0);
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
             while (QLayoutItem* item = installStepDetails_[i]->takeAt(0)) {
                 if (item->widget()) item->widget()->deleteLater();
                 delete item;
@@ -697,6 +713,7 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
     for (int i = 0; i < installStepBars_.size(); ++i) {
         if (i < active) {
             installStepBars_[i]->setValue(100);
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("100%");
             QString text = installStepLabels_[i]->text();
             text.remove(0, 2);
             installStepLabels_[i]->setText("✓ " + text);
@@ -704,6 +721,7 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
             const int span = std::max(1, bounds[i + 1] - bounds[i]);
             const int local = qBound(0, (percent - bounds[i]) * 100 / span, 100);
             installStepBars_[i]->setValue(local);
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText(QStringLiteral("%1%").arg(local));
             QString text = installStepLabels_[i]->text();
             text.remove(0, 2);
             installStepLabels_[i]->setText("… " + text);
@@ -715,20 +733,32 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
                     auto* row = new QWidget(this);
                     auto* rowLayout = new QVBoxLayout(row);
                     rowLayout->setContentsMargins(16, 0, 0, 0);
+                    auto* header = new QHBoxLayout();
                     auto* label = new QLabel(step, row);
                     label->setObjectName("hint");
+                    auto* percent = new QLabel("0%", row);
+                    percent->setObjectName("hint");
+                    header->addWidget(label, 1);
+                    header->addWidget(percent);
+                    rowLayout->addLayout(header);
                     detailBar = new QProgressBar(row);
                     detailBar->setRange(0, 100);
+                    detailBar->setTextVisible(false);
                     detailBar->setFixedHeight(5);
-                    rowLayout->addWidget(label);
                     rowLayout->addWidget(detailBar);
+                    installDetailPercents_.insert(step, percent);
                     installStepDetails_[i]->addWidget(row);
                     installDetailBars_.insert(step, detailBar);
                 }
                 detailBar->setValue(local);
+                if (auto* percent = installDetailPercents_.value(step, nullptr)) {
+                    percent->setText(QStringLiteral("%1%").arg(local));
+                }
             }
         } else {
             installStepBars_[i]->setValue(0);
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
             QString text = installStepLabels_[i]->text();
             text.remove(0, 2);
             installStepLabels_[i]->setText("· " + text);

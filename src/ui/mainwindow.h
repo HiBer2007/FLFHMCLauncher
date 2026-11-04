@@ -119,7 +119,9 @@ private:
     QList<QLabel*> installStepLabels_;
     QList<QProgressBar*> installStepBars_;
     QList<QVBoxLayout*> installStepDetails_;
+    QList<QLabel*> installStepPercents_;
     QHash<QString, QProgressBar*> installDetailBars_;
+    QHash<QString, QLabel*> installDetailPercents_;
     QProgressBar* installRightBar_ = nullptr;
     QPushButton* installRetry_ = nullptr;
     QPropertyAnimation* installAnim_ = nullptr;
