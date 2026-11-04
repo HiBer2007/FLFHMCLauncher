@@ -16,6 +16,7 @@
 #include <QFileInfo>
 #include <QFrame>
 #include <QGraphicsOpacityEffect>
+#include <QIcon>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -527,7 +528,7 @@ void MainWindow::beginInstall() {
     installBar_->setValue(0);
     installPercent_->setText("0 %");
     installTitle_->setText("正在准备 " + name);
-    showPage(4);
+    showPage(6);
 
     std::thread([this, instance]() mutable {
         std::string error;
@@ -812,21 +813,35 @@ void MainWindow::showToast(const QString& title, const QString& detail, bool err
 }
 
 void MainWindow::createInstance() {
-    std::string error;
-    const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
-    if (createAgent_) {
-        createAgent_->clear();
+    showPage(5);
+    if (createAgent_ && createAgent_->count() == 0) {
+        createAgent_->addItem("FLFHMCL 2.1", "2.1");
+    }
+    // 版本列表在后台获取，避免点击时卡顿
+    std::thread([this]() {
+        std::string error;
+        const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
+        QStringList versions;
+        QString latest;
         if (release.ok) {
             for (const auto& item : release.versions) {
-                createAgent_->addItem("FLFHMCL " + qs(item.version), qs(item.version));
+                versions.append(qs(item.version));
             }
-            const int latest = createAgent_->findData(qs(release.version));
-            if (latest >= 0) createAgent_->setCurrentIndex(latest);
-        } else {
-            createAgent_->addItem("FLFHMCL 2.1", "2.1");
+            latest = qs(release.version);
         }
-    }
-    showPage(3);
+        QMetaObject::invokeMethod(this, [this, versions, latest]() {
+            if (!createAgent_) return;
+            createAgent_->clear();
+            for (const QString& version : versions) {
+                createAgent_->addItem("FLFHMCL " + version, version);
+            }
+            if (versions.isEmpty()) {
+                createAgent_->addItem("FLFHMCL 2.1", "2.1");
+            }
+            const int index = createAgent_->findData(latest);
+            if (index >= 0) createAgent_->setCurrentIndex(index);
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 void MainWindow::runInstall(const QString& name, bool isolated, const QString& agentVersion) {
     Instance instance;
@@ -969,7 +984,7 @@ void MainWindow::openMods() {
         return;
     }
     refreshMods();
-    showPage(6);
+    showPage(4);
 }
 
 void MainWindow::openManage(const std::string& id) {
@@ -980,7 +995,7 @@ void MainWindow::openManage(const std::string& id) {
         return;
     }
     refreshManage();
-    showPage(5);
+    showPage(3);
 }
 
 void MainWindow::refreshManage() {
