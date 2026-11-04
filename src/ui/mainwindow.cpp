@@ -1481,7 +1481,11 @@ void MainWindow::launchSelected() {
                 QMetaObject::invokeMethod(this, [this, code, text, name, uuid]() {
                     launching_.remove(uuid);
                     started_.remove(uuid);
-                    if (code == 0) {
+                    const bool failed = code != 0
+                            || text.contains("Bootstrap failed")
+                            || text.contains("ExceptionInInitializerError")
+                            || text.contains("duplicate fabric loader");
+                    if (!failed) {
                         showToast("HMCL 已退出", name + " 正常退出", false);
                         return;
                     }
@@ -1499,7 +1503,7 @@ void MainWindow::launchSelected() {
                             ? QStringLiteral("未从输出中找到异常行，请查看实例日志。")
                             : details.join("\n");
                     QMessageBox::warning(this, "HMCL 异常退出",
-                            QStringLiteral("退出代码：%1\n\n%2").arg(code).arg(summary));
+                            QStringLiteral("退出代码：%1\n\n%2").arg(failed && code == 0 ? 1 : code).arg(summary));
                     showToast("HMCL 异常退出", QStringLiteral("退出代码 %1").arg(code), true);
                 }, Qt::QueuedConnection);
             },
