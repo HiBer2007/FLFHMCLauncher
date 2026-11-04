@@ -18,6 +18,7 @@ struct LaunchPlan {
 LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart);
 
 bool launchInstance(const Instance& instance, std::string* error, bool quickStart = false);
+bool validateInstanceFiles(const Instance& instance, std::string* error);
 
 /// 持有子进程：读取合并后的 stdout/stderr，退出时回调；不随启动器退出而终止。
 bool launchInstanceManaged(const Instance& instance,

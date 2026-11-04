@@ -3,6 +3,7 @@
 #include "core/http.h"
 #include "core/meta.h"
 #include "core/library_table.h"
+#include "core/launcher.h"
 
 #include <QFile>
 
@@ -277,7 +278,7 @@ bool installHmcl(Instance& instance, const ProgressFn& progress, std::string* er
     return true;
 }
 
-bool writeMclhrManifest(const Instance& instance, std::string* error) {
+bool writeMclhrManifest(Instance& instance, std::string* error) {
     nlohmann::json manifest;
     manifest["modules"] = nlohmann::json::array();
 
@@ -290,6 +291,11 @@ bool writeMclhrManifest(const Instance& instance, std::string* error) {
         }
         // JavaFX 必须与当前实例的 JDK 主版本一致，忽略其他版本
         if (entry.group == "org.openjfx" && entry.version != javaFxVersion) {
+            continue;
+        }
+        // 只写实例选择的 Fabric Loader 版本，避免 classpath 中同时出现多个版本
+        if (entry.group == "net.fabricmc" && entry.artifact == "fabric-loader"
+                && entry.version != instance.loaderVersion) {
             continue;
         }
         const std::string key = entry.group + ":" + entry.artifact + ":"
@@ -320,6 +326,8 @@ bool writeMclhrManifest(const Instance& instance, std::string* error) {
         if (error) *error = "写入 mclhr.json 失败";
         return false;
     }
+    out.close();
+    instance.manifestSha256 = sha256File(Workspace::get().instanceDir(instance) / "mclhr.json");
     return true;
 }
 
@@ -475,6 +483,11 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
         return false;
     }
 
+    std::string validationError;
+    if (!validateInstanceFiles(instance, &validationError)) {
+        if (error) *error = "安装校验失败: " + validationError;
+        return false;
+    }
     progress("完成", 100);
     return true;
 }

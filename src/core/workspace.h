@@ -30,6 +30,9 @@ struct Instance {
     Layer mods;
     Layer minecraft;
     Layer hmclHome;
+    bool validateBeforeLaunch = true;
+    bool checkUpdatesBeforeLaunch = true;
+    std::string manifestSha256;
     bool isolated = false;       // true: .launcher/<uuid>/.minecraft + .hmcl
     std::string launchBehavior;  // "" = 继承全局；keep / hide / exit
     std::int64_t createdAt = 0;
@@ -42,6 +45,8 @@ struct AppConfig {
     std::string lastInstance;
     nlohmann::json mirrors = nlohmann::json::object();
     std::string launchBehavior = "keep";  // keep / hide / exit
+    bool validateBeforeLaunch = true;
+    bool checkUpdatesBeforeLaunch = true;
 };
 
 /// 工作区：`.flfhmcl` 根、配置、实例列表。

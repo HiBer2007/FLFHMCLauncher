@@ -78,6 +78,9 @@ nlohmann::json toJson(const Instance& instance) {
         {"mods", layerToJson(instance.mods)},
         {"minecraft", layerToJson(instance.minecraft)},
         {"hmclHome", layerToJson(instance.hmclHome)},
+        {"validateBeforeLaunch", instance.validateBeforeLaunch},
+        {"checkUpdatesBeforeLaunch", instance.checkUpdatesBeforeLaunch},
+        {"manifestSha256", instance.manifestSha256},
         {"isolated", instance.isolated},
         {"launchBehavior", instance.launchBehavior},
         {"createdAt", instance.createdAt},
@@ -95,6 +98,9 @@ Instance instanceFromJson(const nlohmann::json& json) {
     instance.loader = json.value("loader", "fabric");
     instance.loaderVersion = json.value("loaderVersion", "");
     instance.javaPath = json.value("javaPath", "");
+    instance.validateBeforeLaunch = json.value("validateBeforeLaunch", true);
+    instance.checkUpdatesBeforeLaunch = json.value("checkUpdatesBeforeLaunch", true);
+    instance.manifestSha256 = json.value("manifestSha256", "");
     instance.isolated = json.value("isolated", false);
     instance.launchBehavior = json.value("launchBehavior", "");
     instance.createdAt = json.value("createdAt", 0LL);
@@ -127,6 +133,8 @@ void Workspace::initialize() {
             config_.lastInstance = json.value("lastInstance", "");
             config_.mirrors = json.value("mirrors", nlohmann::json::object());
             config_.launchBehavior = json.value("launchBehavior", "keep");
+            config_.validateBeforeLaunch = json.value("validateBeforeLaunch", true);
+            config_.checkUpdatesBeforeLaunch = json.value("checkUpdatesBeforeLaunch", true);
         } catch (...) {
             // 配置损坏时使用默认值
         }
@@ -215,6 +223,8 @@ void Workspace::saveConfig() {
         {"lastInstance", config_.lastInstance},
         {"mirrors", config_.mirrors},
         {"launchBehavior", config_.launchBehavior},
+        {"validateBeforeLaunch", config_.validateBeforeLaunch},
+        {"checkUpdatesBeforeLaunch", config_.checkUpdatesBeforeLaunch},
     };
     writeJson(home_ / "config" / "launcher.json", json);
 }

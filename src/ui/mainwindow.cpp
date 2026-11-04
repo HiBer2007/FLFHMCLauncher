@@ -308,6 +308,36 @@ QWidget* MainWindow::buildSettingsPage() {
         applyTheme();
     });
     a->addWidget(darkToggle_);
+    validateToggle_ = new QCheckBox("启动前校验文件", appearance);
+    validateToggle_->setChecked(Workspace::get().config().validateBeforeLaunch);
+    updateToggle_ = new QCheckBox("启动前检查更新", appearance);
+    updateToggle_->setChecked(Workspace::get().config().checkUpdatesBeforeLaunch);
+    instanceValidate_ = new QCheckBox("当前实例：校验文件", appearance);
+    instanceUpdate_ = new QCheckBox("当前实例：检查更新", appearance);
+    a->addWidget(validateToggle_);
+    a->addWidget(updateToggle_);
+    a->addWidget(instanceValidate_);
+    a->addWidget(instanceUpdate_);
+    connect(validateToggle_, &QCheckBox::toggled, this, [](bool on) {
+        Workspace::get().config().validateBeforeLaunch = on;
+        Workspace::get().saveConfig();
+    });
+    connect(updateToggle_, &QCheckBox::toggled, this, [](bool on) {
+        Workspace::get().config().checkUpdatesBeforeLaunch = on;
+        Workspace::get().saveConfig();
+    });
+    connect(instanceValidate_, &QCheckBox::toggled, this, [this](bool on) {
+        if (Instance* instance = selectedInstance()) {
+            instance->validateBeforeLaunch = on;
+            Workspace::get().saveInstances();
+        }
+    });
+    connect(instanceUpdate_, &QCheckBox::toggled, this, [this](bool on) {
+        if (Instance* instance = selectedInstance()) {
+            instance->checkUpdatesBeforeLaunch = on;
+            Workspace::get().saveInstances();
+        }
+    });
     auto* behaviorLabel = new QLabel("启动后：", appearance);
     behaviorGlobal_ = new QComboBox(appearance);
     behaviorGlobal_->addItem("保持启动器显示", "keep");
@@ -1060,6 +1090,11 @@ void MainWindow::fadeIn(QWidget* widget) {
 
 void MainWindow::setCurrent(const std::string& id) {
     currentId_ = id;
+    if (instanceValidate_ && instanceUpdate_) {
+        Instance* selected = selectedInstance();
+        instanceValidate_->setChecked(selected ? selected->validateBeforeLaunch : true);
+        instanceUpdate_->setChecked(selected ? selected->checkUpdatesBeforeLaunch : true);
+    }
     if (behaviorInstance_) {
         behaviorInstance_->blockSignals(true);
         Instance* instance = selectedInstance();
@@ -1302,6 +1337,25 @@ void MainWindow::launchSelected() {
         return;
     }
 
+    if (instance->validateBeforeLaunch && Workspace::get().config().validateBeforeLaunch) {
+        std::string validationError;
+        if (!validateInstanceFiles(*instance, &validationError)) {
+            showToast("文件校验失败", qs(validationError), true);
+            return;
+        }
+    }
+    if (instance->checkUpdatesBeforeLaunch && Workspace::get().config().checkUpdatesBeforeLaunch) {
+        std::thread([this]() {
+            std::string updateError;
+            const HmclRelease latest = fetchHmclRelease(&updateError);
+            if (!latest.ok) return;
+            if (latest.version != Workspace::get().config().hmclVersion) {
+                QMetaObject::invokeMethod(this, [this, version = qs(latest.version)]() {
+                    showToast("发现 HMCL 更新", QStringLiteral("HMCL %1 可用").arg(version), false);
+                }, Qt::QueuedConnection);
+            }
+        }).detach();
+    }
     const QString name = qs(instance->name);
     const QString logPath = QString::fromStdWString(
             (Workspace::get().home() / "logs"

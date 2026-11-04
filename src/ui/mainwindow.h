@@ -139,6 +139,10 @@ private:
     QLabel* modsTitle_ = nullptr;
     QLabel* status_ = nullptr;
     QCheckBox* darkToggle_ = nullptr;
+    QCheckBox* validateToggle_ = nullptr;
+    QCheckBox* updateToggle_ = nullptr;
+    QCheckBox* instanceValidate_ = nullptr;
+    QCheckBox* instanceUpdate_ = nullptr;
     QComboBox* behaviorGlobal_ = nullptr;
     QComboBox* behaviorInstance_ = nullptr;
     HiBerGUI::ToastNotification* toast_ = nullptr;

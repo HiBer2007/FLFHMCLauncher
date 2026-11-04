@@ -1,6 +1,7 @@
 #include "core/launcher.h"
 
 #include "core/meta.h"
+#include "core/http.h"
 
 #include <QProcess>
 
@@ -10,6 +11,8 @@
 #include <mutex>
 #include <thread>
 #include <sstream>
+#include <set>
+#include <fstream>
 
 namespace flf {
 namespace {
@@ -85,6 +88,56 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
     return plan;
 }
 
+bool validateInstanceFiles(const Instance& instance, std::string* error) {
+    auto fail = [&](const std::string& message) {
+        if (error) *error = message;
+        return false;
+    };
+    if (instance.javaPath.empty() || !fs::exists(instance.javaPath)) {
+        return fail("Java 路径不存在");
+    }
+    const Workspace& workspace = Workspace::get();
+    if (!fs::exists(workspace.agentJar(instance))) return fail("FLFHMCL Agent 不存在");
+    if (!fs::exists(workspace.hmclJar(instance))) return fail("HMCL jar 不存在");
+
+    const fs::path manifestPath = workspace.instanceDir(instance) / "mclhr.json";
+    if (!fs::exists(manifestPath)) return fail("mclhr 清单不存在");
+    if (!instance.manifestSha256.empty()
+            && sha256File(manifestPath) != instance.manifestSha256) {
+        return fail("mclhr 清单哈希不匹配");
+    }
+
+    try {
+        std::ifstream input(manifestPath);
+        const auto manifest = nlohmann::json::parse(input);
+        const auto modules = manifest.value("modules", nlohmann::json::array());
+        std::set<std::string> seen;
+        bool hasLibrary = false;
+        for (const auto& module : modules) {
+            for (const auto& library : module.value("libraries", nlohmann::json::array())) {
+                const std::string group = library.value("group", "");
+                const std::string artifact = library.value("artifact", "");
+                const std::string version = library.value("version", "");
+                if (group.empty() || artifact.empty() || version.empty()) {
+                    return fail("mclhr 清单包含无效库条目");
+                }
+                if (group == "net.fabricmc" && artifact == "fabric-loader"
+                        && version != instance.loaderVersion) {
+                    return fail("mclhr 清单包含错误的 Fabric Loader 版本");
+                }
+                const std::string key = group + ":" + artifact + ":" + version;
+                if (!seen.insert(key).second) {
+                    return fail("mclhr 清单包含重复库: " + key);
+                }
+                hasLibrary = true;
+            }
+        }
+        if (!hasLibrary) return fail("mclhr 清单没有库");
+    } catch (const std::exception& e) {
+        return fail(std::string("mclhr 清单解析失败: ") + e.what());
+    }
+    return true;
+}
 bool launchInstance(const Instance& instance, std::string* error, bool quickStart) {
     if (instance.javaPath.empty()) {
         if (error) *error = "实例没有配置 Java";
