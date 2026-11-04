@@ -74,7 +74,6 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
         "-Dflf.mclhr.manifest=" + workspace.manifestPath(instance).string(),
         "-Dflf.profile=" + workspace.profileDir(instance).string(),
         "-Dflf.version=" + instance.agentVersion,
-        "-Dflf.crash.dir=" + (workspace.home() / "crash-reports").string(),
         "-Dflf.home=" + workspace.home().string(),
         "-Dflfhmcl.update.managed=true",
         "-Dflf.knot.direct=true",
