@@ -28,6 +28,7 @@
 #include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QRegularExpression>
+#include <QToolButton>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
@@ -635,8 +636,12 @@ void MainWindow::beginInstall() {
             auto* percent = new QLabel("0%", card);
             percent->setObjectName("hint");
             percent->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            auto* toggle = new QToolButton(card);
+            toggle->setText("▾");
+            toggle->setAutoRaise(true);
             header->addWidget(label, 1);
             header->addWidget(percent);
+            header->addWidget(toggle);
             layout->addLayout(header);
             auto* bar = new QProgressBar(card);
             bar->setRange(0, 100);
@@ -644,14 +649,26 @@ void MainWindow::beginInstall() {
             bar->setTextVisible(false);
             bar->setFixedHeight(6);
             layout->addWidget(bar);
-            auto* details = new QVBoxLayout();
-            layout->addLayout(details);
+            auto* body = new QWidget(card);
+            auto* details = new QVBoxLayout(body);
+            details->setContentsMargins(0, 0, 0, 0);
+            layout->addWidget(body);
             installStepsLayout_->insertWidget(installStepsLayout_->count() - 1, card);
             installStepWidgets_.append(card);
             installStepLabels_.append(label);
             installStepPercents_.append(percent);
             installStepBars_.append(bar);
             installStepDetails_.append(details);
+            installStepToggles_.append(toggle);
+            installStepBodies_.append(body);
+            const int stepIndex = installStepWidgets_.size() - 1;
+            connect(toggle, &QToolButton::clicked, this, [this, stepIndex, body, toggle]() {
+                const bool show = !body->isVisible();
+                body->setVisible(show);
+                toggle->setText(show ? "▾" : "▸");
+                if (show) installPinned_.insert(stepIndex);
+                else installPinned_.remove(stepIndex);
+            });
         }
         const QStringList names = {"准备 Java", "下载 JavaFX", "安装 Fabric",
                                    "安装依赖库", "下载 HMCL", "下载 FLFHMCL Agent",
@@ -731,6 +748,7 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
             bar->setValue(value);
         }
     };
+    int activeLocal = 0;
     for (int i = 0; i < installStepBars_.size(); ++i) {
         if (i < active) {
             setStepBar(installStepBars_[i], 100);
@@ -741,6 +759,7 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
         } else if (i == active) {
             const int span = std::max(1, bounds[i + 1] - bounds[i]);
             const int local = qBound(0, (percent - bounds[i]) * 100 / span, 100);
+            activeLocal = local;
             setStepBar(installStepBars_[i], local);
             if (i < installStepPercents_.size()) installStepPercents_[i]->setText(QStringLiteral("%1%").arg(local));
             QString text = installStepLabels_[i]->text();
@@ -797,6 +816,50 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
             installStepLabels_[i]->setText("· " + text);
         }
     }
+
+    // 大项进度 = 所有子项平均；总进度 = 所有大项平均
+    double overallSum = 0;
+    for (int i = 0; i < installStepBars_.size(); ++i) {
+        double value = 0;
+        int childCount = 0;
+        double childSum = 0;
+        if (i < installStepDetails_.size()) {
+            QVBoxLayout* details = installStepDetails_[i];
+            for (int j = 0; j < details->count(); ++j) {
+                if (QWidget* row = details->itemAt(j)->widget()) {
+                    if (QProgressBar* bar = row->findChild<QProgressBar*>()) {
+                        if (bar->maximum() > 0) {
+                            childSum += bar->value();
+                            ++childCount;
+                        }
+                    }
+                }
+            }
+        }
+        if (i < active) value = 100;
+        else if (i == active) value = childCount > 0 ? childSum / childCount : activeLocal;
+        if (childCount > 0 && i <= active) value = childSum / childCount;
+        installStepBars_[i]->setRange(0, 100);
+        installStepBars_[i]->setValue(static_cast<int>(value));
+        if (i < installStepPercents_.size()) {
+            installStepPercents_[i]->setText(QStringLiteral("%1%").arg(static_cast<int>(value)));
+        }
+        overallSum += value;
+
+        // 已完成的大项自动折叠，手动展开则保持
+        if (i < installStepBodies_.size()) {
+            const bool completed = i < active;
+            const bool show = !completed || installPinned_.contains(i);
+            installStepBodies_[i]->setVisible(show);
+            if (i < installStepToggles_.size()) {
+                installStepToggles_[i]->setText(show ? "▾" : "▸");
+            }
+        }
+    }
+    const int overall = qBound(0, static_cast<int>(overallSum / std::max<int>(1, installStepBars_.size())), 100);
+    installBar_->setValue(overall);
+    installRightBar_->setValue(overall);
+    installPercent_->setText(QStringLiteral("%1 %").arg(overall));
 }
 void MainWindow::finishInstall(const Instance& instance, bool ok, const QString& error) {
     if (!ok) {

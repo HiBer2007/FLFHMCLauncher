@@ -15,12 +15,14 @@ class QPushButton;
 class QCheckBox;
 class QListWidget;
 class QTreeWidget;
+class QToolButton;
 class QPropertyAnimation;
 class QComboBox;
 class QLineEdit;
 class QProgressBar;
 class QListWidget;
 class QTreeWidget;
+class QToolButton;
 class QPropertyAnimation;
 
 namespace HiBerGUI {
@@ -120,6 +122,9 @@ private:
     QList<QProgressBar*> installStepBars_;
     QList<QVBoxLayout*> installStepDetails_;
     QList<QLabel*> installStepPercents_;
+    QList<QToolButton*> installStepToggles_;
+    QList<QWidget*> installStepBodies_;
+    QSet<int> installPinned_;
     QHash<QString, QProgressBar*> installDetailBars_;
     QHash<QString, QLabel*> installDetailPercents_;
     QProgressBar* installRightBar_ = nullptr;
