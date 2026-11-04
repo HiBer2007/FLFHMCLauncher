@@ -28,6 +28,7 @@
 #include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QRegularExpression>
+#include <QPointer>
 #include <QToolButton>
 #include <QPushButton>
 #include <QScrollArea>
@@ -240,6 +241,7 @@ QWidget* MainWindow::buildLaunchPage() {
     addOp("模组管理", [this]() { openMods(); });
     addOp("打开实例目录", [this]() { openFolder(); });
     addOp("创建快速启动器", [this]() { quickStartSelected(); });
+    addOp("更新实例组件", [this]() { showUpdateDialog(); });
     addOp("删除实例", [this]() { deleteInstance(); });
     opLayout->addStretch();
     auto* hint = new QLabel("先在右侧选择实例，再执行左侧操作。", ops);
@@ -961,6 +963,172 @@ void MainWindow::finishInstall(const Instance& instance, bool ok, const QString&
     showPage(0);
     showToast("实例已创建", QStringLiteral("%1 已准备完成").arg(qs(instance.name)), false);
 }
+void MainWindow::showUpdateDialog() {
+    Instance* instance = selectedInstance();
+    if (instance == nullptr) {
+        showToast("未选择实例", "请先在右侧选择一个实例", true);
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("更新实例组件");
+    dialog.setMinimumWidth(460);
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setContentsMargins(20, 18, 20, 16);
+    layout->setSpacing(10);
+
+    auto* hint = new QLabel("勾选要更新的组件，并选择目标版本。", &dialog);
+    hint->setObjectName("hint");
+    layout->addWidget(hint);
+
+    auto makeRow = [&](const QString& name, const QString& current,
+                       QCheckBox*& check, QComboBox*& combo) {
+        auto* row = new QHBoxLayout();
+        check = new QCheckBox(name + QStringLiteral("（当前 %1）").arg(current), &dialog);
+        combo = new QComboBox(&dialog);
+        combo->addItem("加载中…");
+        combo->setEnabled(false);
+        combo->setMinimumWidth(160);
+        row->addWidget(check, 1);
+        row->addWidget(combo);
+        layout->addLayout(row);
+    };
+
+    QCheckBox* hmclCheck = nullptr;
+    QCheckBox* agentCheck = nullptr;
+    QCheckBox* loaderCheck = nullptr;
+    QComboBox* hmclCombo = nullptr;
+    QComboBox* agentCombo = nullptr;
+    QComboBox* loaderCombo = nullptr;
+    makeRow("HMCL", qs(instance->hmclVersion), hmclCheck, hmclCombo);
+    makeRow("FLFHMCL", qs(instance->agentVersion), agentCheck, agentCombo);
+    makeRow("Fabric Loader", qs(instance->loaderVersion), loaderCheck, loaderCombo);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText("开始更新");
+    buttons->button(QDialogButtonBox::Cancel)->setText("取消");
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    QPointer<QComboBox> hmclGuard = hmclCombo;
+    QPointer<QComboBox> agentGuard = agentCombo;
+    QPointer<QComboBox> loaderGuard = loaderCombo;
+
+    std::thread([this, hmclGuard]() {
+        std::string error;
+        auto versions = fetchHmclVersions(nullptr, &error);
+        QStringList list;
+        for (const auto& version : versions) list.append(qs(version));
+        QMetaObject::invokeMethod(this, [hmclGuard, list]() {
+            if (!hmclGuard) return;
+            hmclGuard->clear();
+            for (const QString& version : list) hmclGuard->addItem(version, version);
+            hmclGuard->setEnabled(!list.isEmpty());
+        }, Qt::QueuedConnection);
+    }).detach();
+
+    std::thread([this, agentGuard]() {
+        std::string error;
+        const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
+        QStringList list;
+        for (const auto& item : release.versions) list.append(qs(item.version));
+        QMetaObject::invokeMethod(this, [agentGuard, list]() {
+            if (!agentGuard) return;
+            agentGuard->clear();
+            for (const QString& version : list) agentGuard->addItem(version, version);
+            agentGuard->setEnabled(!list.isEmpty());
+        }, Qt::QueuedConnection);
+    }).detach();
+
+    std::thread([this, loaderGuard]() {
+        std::string error;
+        auto loaders = fetchFabricLoaders("1.21.1", &error);
+        QStringList list;
+        for (const auto& loader : loaders) list.append(qs(loader));
+        QMetaObject::invokeMethod(this, [loaderGuard, list]() {
+            if (!loaderGuard) return;
+            loaderGuard->clear();
+            for (const QString& loader : list) loaderGuard->addItem(loader, loader);
+            loaderGuard->setEnabled(!list.isEmpty());
+        }, Qt::QueuedConnection);
+    }).detach();
+
+    if (dialog.exec() != QDialog::Accepted) return;
+    if (!hmclCheck->isChecked() && !agentCheck->isChecked() && !loaderCheck->isChecked()) {
+        showToast("未选择组件", "请至少勾选一个组件", false);
+        return;
+    }
+
+    Instance updated = *instance;
+    if (hmclCheck->isChecked() && hmclCombo->currentData().isValid()) {
+        updated.hmclVersion = ss(hmclCombo->currentData().toString());
+        updated.hmclSha1.clear();
+    }
+    if (agentCheck->isChecked() && agentCombo->currentData().isValid()) {
+        updated.agentVersion = ss(agentCombo->currentData().toString());
+    }
+    if (loaderCheck->isChecked() && loaderCombo->currentData().isValid()) {
+        updated.loaderVersion = ss(loaderCombo->currentData().toString());
+    }
+    beginComponentUpdate(updated);
+}
+
+void MainWindow::beginComponentUpdate(const Instance& instance) {
+    repairMode_ = true;
+    if (installStepsLayout_) {
+        const QStringList names = {"准备 Java", "安装 HMCL", "安装 FLFHMCL Agent",
+                                   "安装 Fabric Loader", "补全依赖库",
+                                   "重建配置", "校验"};
+        for (int i = 0; i < names.size() && i < installStepLabels_.size(); ++i) {
+            installStepLabels_[i]->setText("· " + names[i]);
+            installStepBars_[i]->setRange(0, 0);
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("pending");
+            while (QLayoutItem* item = installStepDetails_[i]->takeAt(0)) {
+                if (item->widget()) item->widget()->deleteLater();
+                delete item;
+            }
+        }
+        installDetailBars_.clear();
+        installDetailPercents_.clear();
+        installStarted_.clear();
+        installCompleted_.clear();
+    }
+    if (installRetry_) installRetry_->hide();
+    installTitle_->setText("正在更新 " + qs(instance.name));
+    installPercent_->setText("pending");
+    installBar_->setRange(0, 0);
+    installRightBar_->setRange(0, 0);
+    showPage(6);
+
+    Instance work = instance;
+    std::thread([this, work]() mutable {
+        std::string error;
+        const bool ok = installInstance(work, [this](const std::string& step, int percent) {
+            QMetaObject::invokeMethod(this, [this, step = qs(step), percent]() {
+                updateInstallStep(step, percent);
+            }, Qt::QueuedConnection);
+        }, &error);
+        QMetaObject::invokeMethod(this, [this, work, ok, error = qs(error)]() {
+            repairMode_ = false;
+            if (!ok) {
+                installFailed_ = true;
+                installTitle_->setText("更新失败");
+                installPercent_->setText("失败");
+                if (installRetry_) installRetry_->show();
+                showToast("更新失败", error, true);
+                return;
+            }
+            if (Instance* target = Workspace::get().find(work.uuid)) {
+                *target = work;
+                Workspace::get().saveInstances();
+            }
+            refreshInstances();
+            showPage(0);
+            showToast("更新完成", qs(work.name) + " 的组件已更新", false);
+        }, Qt::QueuedConnection);
+    }).detach();
+}
 QWidget* MainWindow::buildManagePage() {
     auto* page = new QWidget(this);
     auto* layout = new QHBoxLayout(page);
@@ -985,6 +1153,7 @@ QWidget* MainWindow::buildManagePage() {
     addOp("模组管理", [this]() { openMods(); });
     addOp("打开实例目录", [this]() { openFolder(); });
     addOp("创建快速启动器", [this]() { quickStartSelected(); });
+    addOp("更新实例组件", [this]() { showUpdateDialog(); });
     addOp("删除实例", [this]() { deleteInstance(); });
     opLayout->addStretch();
     layout->addWidget(ops);

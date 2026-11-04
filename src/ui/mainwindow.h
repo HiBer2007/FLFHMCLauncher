@@ -68,6 +68,8 @@ private:
     void refreshMods();
     void beginInstall();
     void beginRepair(const Instance& instance);
+    void showUpdateDialog();
+    void beginComponentUpdate(const Instance& instance);
     void finishRepair(const Instance& instance, bool ok, const QString& error);
     void fillVersionCombo(QComboBox* channel, QComboBox* version,
                           const QStringList& stable, const QStringList& preview);
