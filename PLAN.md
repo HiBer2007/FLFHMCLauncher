@@ -310,6 +310,7 @@ cmake --build build --config Release
 - [x] 子模块接入（`third_party/HiBerGUILibCPP`、`CommonLoggerCPP`、`CrashTrackerHandleLibCPP`）
 - [x] M0 骨架：`.flfhmcl` 初始化、日志、崩溃处理、Qt 窗口
 - [x] 首次构建通过（`H:\Qt-static` + vcpkg `x64-windows`，产物 21 MB 静态 Qt EXE + 64 KB QuickStart）
+- [x] `CommonLoggerCPP` 兼容 spdlog 2.x（运行期格式串），已推送上游
 - [ ] 静态 CRT 版本（`Qt-static-rt` + `x64-windows-static`）
 - [ ] CrashTracker.exe 自动拉取与硬链接
 - [ ] M1 起（配置/实例/下载/启动/更新）
@@ -319,7 +320,7 @@ cmake --build build --config Release
 
 | 问题 | 影响 | 处理 |
 |------|------|------|
-| `CommonLoggerCPP` 的模板 API 与 spdlog 2.x（`SPDLOG_USE_STD_FORMAT`）不兼容：`Info(fmt, args...)` 把运行期 `const char*` 传给 `std::format_string` | 调用 `CLogger::Info(...)` 编译失败 | 骨架里改用 `CLogger::Get()->info("字面量", args...)`；推动上游用 `SPDLOG_FMT_RUNTIME` 包一层，或固定 spdlog 1.x |
+| ~~`CommonLoggerCPP` 模板 API 与 spdlog 2.x 不兼容~~ | 已修复 | 已改为 `fmt_lib::vformat` 运行期格式化并推送 `895a918` |
 | vcpkg 当前只有 `x64-windows`（动态 CRT） | 与 `Qt-static-rt`（`/MT`）混链会 CRT 冲突；spdlog 以 DLL 形式部署 | 安装 `x64-windows-static` 的 `spdlog`/`nlohmann-json`/`webview2`，改用 `Qt-static-rt` |
 | vcpkg 未安装 `webview2` | `HiBerGUIWebView2` 暂不构建 | `FLF_ENABLE_WEBVIEW2=OFF`（默认），需要时安装后开启 |
 | 快速启动 EXE 目前只弹窗显示配置 | M4 前不可真正启动 | M4 接入 LaunchAssembler |

@@ -13,11 +13,7 @@ void bootstrap() {
     const auto root = ensureLayout();
 
     CLogger::Init(logFile().string(), "flfhmlauncher");
-    // CommonLoggerCPP 的模板 API 与 spdlog 2.x 的编译期格式串不兼容，
-    // 这里通过 Get() 直接使用 spdlog；见 PLAN.md「已知问题」。
-    if (auto logger = CLogger::Get()) {
-        logger->info("FLFHMCLauncher starting, home={}", root.string());
-    }
+    CLogger::Info("FLFHMCLauncher starting, home={}", root.string());
 
     HiBerCTM::InstallCrashHandler(root.string());
     HiBerCTM::SetCrashAppName("FLFHMCLauncher");
@@ -27,9 +23,7 @@ void bootstrap() {
 }
 
 void shutdown() {
-    if (auto logger = CLogger::Get()) {
-        logger->info("FLFHMCLauncher exiting");
-    }
+    CLogger::Info("FLFHMCLauncher exiting");
 }
 
 } // namespace flf
