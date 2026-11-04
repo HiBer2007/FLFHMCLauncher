@@ -55,6 +55,7 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
         "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
         "-Dflfhmcl.gameDir=" + plan.workingDir.string(),
         "-Dflf.instance=" + instance.id,
+        "-Dflf.home=" + workspace.home().string(),
         "-Dflfhmcl.update.managed=true",
         "-Dhmcl.home=" + workspace.resolveHmclHome(instance).string(),
         "-jar",

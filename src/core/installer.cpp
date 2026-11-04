@@ -101,7 +101,8 @@ bool ensureJava(Instance& instance, const ProgressFn& progress, std::string* err
 bool installJavaFx(const ProgressFn& progress, std::string* error) {
     for (const char* component : {"base", "graphics", "controls"}) {
         const fs::path target = Workspace::get().librariesDir()
-                / ("javafx-" + std::string(component) + "-" + kJavaFxVersion + "-win.jar");
+                / ("org_openjfx_javafx-" + std::string(component) + "_"
+                   + kJavaFxVersion + "-win.jar");
         if (fs::exists(target)) {
             continue;
         }
@@ -230,6 +231,29 @@ bool writeMclhrManifest(const Instance& instance, std::string* error) {
         });
     }
 
+    static const struct { const char* group; const char* artifact; const char* version; } hmclDeps[] = {
+        {"org.apache.logging.log4j", "log4j-api", "2.24.3"},
+        {"org.apache.logging.log4j", "log4j-core", "2.24.3"},
+        {"org.apache.logging.log4j", "log4j-slf4j2-impl", "2.24.3"},
+        {"org.slf4j", "slf4j-api", "2.0.16"},
+        {"com.google.code.gson", "gson", "2.10.1"},
+        {"com.google.guava", "guava", "33.0.0-jre"},
+        {"com.google.guava", "failureaccess", "1.0.2"},
+        {"com.google.guava", "listenablefuture", "9999.0-empty-to-avoid-conflict-with-guava"},
+        {"com.google.code.findbugs", "jsr305", "3.0.2"},
+        {"org.checkerframework", "checker-qual", "3.41.0"},
+        {"com.google.errorprone", "error_prone_annotations", "2.23.0"},
+        {"org.ow2.sat4j", "org.ow2.sat4j.core", "2.3.6"},
+        {"org.ow2.sat4j", "org.ow2.sat4j.pb", "2.3.6"},
+    };
+    for (const auto& dependency : hmclDeps) {
+        libraries.push_back({
+            {"group", dependency.group},
+            {"artifact", dependency.artifact},
+            {"version", dependency.version},
+        });
+    }
+
     const fs::path profileFile = Workspace::get().fabricDir(instance) / "profile.json";
     if (fs::exists(profileFile)) {
         try {
@@ -282,6 +306,13 @@ bool downloadHmcl(const std::function<bool(std::int64_t, std::int64_t)>& progres
 
 bool ensureAgent(std::string* error) {
     const fs::path target = Workspace::get().agentJar();
+    const fs::path helperTarget = target.parent_path() / "FLFEarlyLoader.exe";
+    const fs::path helperSource = Workspace::get().launcherDir() / "FLFEarlyLoader.exe";
+    if (fs::exists(helperSource) && !fs::exists(helperTarget)) {
+        std::error_code ec;
+        fs::copy_file(helperSource, helperTarget, fs::copy_options::overwrite_existing, ec);
+    }
+
     if (fs::exists(target)) {
         return true;
     }
