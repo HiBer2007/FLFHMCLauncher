@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -36,9 +37,37 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
-    // TODO(M4): 组装 java 命令行并启动实例，见 PLAN.md。
-    const std::wstring message = L"FLFQuickStart\n\n实例: " + widen(config.instance) +
-                                 L"\n根目录: " + config.launcherRoot.wstring();
-    MessageBoxW(nullptr, message.c_str(), L"FLFQuickStart", MB_ICONINFORMATION);
+    if (config.command.empty()) {
+        const std::wstring message = L"quickstart.json 缺少 command：\n\n实例: "
+                + widen(config.instance);
+        MessageBoxW(nullptr, message.c_str(), L"FLFQuickStart", MB_ICONERROR);
+        return 1;
+    }
+
+    std::vector<wchar_t> buffer(config.command.begin(), config.command.end());
+    buffer.push_back(L'\0');
+
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    const std::wstring workingDir = widen(config.workingDir);
+    const BOOL ok = CreateProcessW(
+            nullptr,
+            buffer.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            0,
+            nullptr,
+            workingDir.empty() ? nullptr : workingDir.c_str(),
+            &startup,
+            &process);
+    if (!ok) {
+        MessageBoxW(nullptr, L"启动实例失败（CreateProcessW）", L"FLFQuickStart", MB_ICONERROR);
+        return 1;
+    }
+
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
     return 0;
 }

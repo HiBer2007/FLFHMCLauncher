@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(FLFHMCLauncher VERSION 0.1.0 LANGUAGES CXX)
+project(FLFHMCLauncher VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,19 +18,16 @@ option(FLF_BUILD_QUICKSTART "Build the tiny quick-start launcher" ON)
 option(FLF_BUILD_EXAMPLES "Build examples" OFF)
 
 # ---------------------------------------------------------------------------
-# Qt (static build expected)
+# 依赖
 # ---------------------------------------------------------------------------
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 qt_standard_project_setup()
 
-# ---------------------------------------------------------------------------
-# third_party submodules
-# ---------------------------------------------------------------------------
 set(COMMONLOGGER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/CommonLoggerCPP EXCLUDE_FROM_ALL)
 
-# 子模块自己把 CXX_STANDARD 设成 17；spdlog 的 SPDLOG_USE_STD_FORMAT 需要 C++20
 set_target_properties(CommonLoggerCPP PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
@@ -39,7 +36,6 @@ set_target_properties(CommonLoggerCPP PROPERTIES
 add_subdirectory(third_party/CrashTrackerHandleLibCPP EXCLUDE_FROM_ALL)
 
 if(FLF_ENABLE_HIBERGUI)
-    find_package(nlohmann_json CONFIG REQUIRED)
     add_subdirectory(
         third_party/HiBerGUILibCPP/HiBerGUILibrary
         ${CMAKE_BINARY_DIR}/third_party/HiBerGUILibrary
@@ -60,6 +56,12 @@ endif()
 add_library(FLFLauncherCore STATIC
     src/core/flf_paths.cpp
     src/core/app_bootstrap.cpp
+    src/core/workspace.cpp
+    src/core/http.cpp
+    src/core/meta.cpp
+    src/core/installer.cpp
+    src/core/launcher.cpp
+    src/core/mods.cpp
     src/core/quickstart_config.cpp
 )
 
@@ -69,6 +71,9 @@ target_link_libraries(FLFLauncherCore
     PUBLIC
         CommonLoggerCPP
         CrashTrackerHandleLib
+        nlohmann_json::nlohmann_json
+        Qt6::Core
+        winhttp
 )
 
 if(FLF_ENABLE_HIBERGUI)
@@ -81,6 +86,8 @@ endif()
 # ---------------------------------------------------------------------------
 qt_add_executable(FLFHMCLauncher WIN32
     src/main.cpp
+    src/ui/mainwindow.cpp
+    src/ui/mainwindow.h
 )
 
 qt_add_resources(FLFHMCLauncher "app_resources"
@@ -94,7 +101,6 @@ endif()
 
 target_link_libraries(FLFHMCLauncher PRIVATE FLFLauncherCore Qt6::Widgets)
 
-# 静态 Qt 需要显式导入平台插件
 if(TARGET Qt6::QWindowsIntegrationPlugin)
     qt_import_plugins(FLFHMCLauncher INCLUDE Qt::QWindowsIntegrationPlugin)
 endif()
@@ -103,6 +109,12 @@ set_target_properties(FLFHMCLauncher PROPERTIES
     OUTPUT_NAME "FLFHMCLauncher"
     WIN32_EXECUTABLE TRUE
 )
+
+# ---------------------------------------------------------------------------
+# CLI（自测 / 无界面安装）
+# ---------------------------------------------------------------------------
+add_executable(FLFLauncherCli src/cli_main.cpp)
+target_link_libraries(FLFLauncherCli PRIVATE FLFLauncherCore Qt6::Core)
 
 # ---------------------------------------------------------------------------
 # Quick start EXE (no Qt)
@@ -117,9 +129,6 @@ if(FLF_BUILD_QUICKSTART)
     set_target_properties(FLFQuickStart PROPERTIES OUTPUT_NAME "FLFQuickStart")
 endif()
 
-# ---------------------------------------------------------------------------
-# Install layout: EXE + .flfhmcl is created at first run
-# ---------------------------------------------------------------------------
 install(TARGETS FLFHMCLauncher RUNTIME DESTINATION .)
 if(FLF_BUILD_QUICKSTART)
     install(TARGETS FLFQuickStart RUNTIME DESTINATION .)

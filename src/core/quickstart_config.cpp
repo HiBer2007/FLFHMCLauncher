@@ -67,6 +67,8 @@ bool loadQuickStartConfig(const std::filesystem::path& exeDir,
     out.launcherRoot = std::filesystem::path(root);
     out.instance = instance;
     extractString(json, "java", out.java);
+    extractString(json, "command", out.command);
+    extractString(json, "workingDir", out.workingDir);
     return true;
 }
 
