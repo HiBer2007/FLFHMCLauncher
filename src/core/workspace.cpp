@@ -76,6 +76,7 @@ nlohmann::json toJson(const Instance& instance) {
         {"mods", layerToJson(instance.mods)},
         {"minecraft", layerToJson(instance.minecraft)},
         {"hmclHome", layerToJson(instance.hmclHome)},
+        {"isolated", instance.isolated},
         {"launchBehavior", instance.launchBehavior},
         {"createdAt", instance.createdAt},
     };
@@ -90,6 +91,7 @@ Instance instanceFromJson(const nlohmann::json& json) {
     instance.loader = json.value("loader", "fabric");
     instance.loaderVersion = json.value("loaderVersion", "");
     instance.javaPath = json.value("javaPath", "");
+    instance.isolated = json.value("isolated", false);
     instance.launchBehavior = json.value("launchBehavior", "");
     instance.createdAt = json.value("createdAt", 0LL);
     if (json.contains("mods")) instance.mods = layerFromJson(json["mods"]);

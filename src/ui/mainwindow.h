@@ -3,6 +3,7 @@
 #include "core/workspace.h"
 
 #include <QMainWindow>
+#include <QSet>
 
 class QLabel;
 class QStackedWidget;
@@ -54,7 +55,7 @@ private:
     void refreshMods();
     void applyTheme();
     void showToast(const QString& title, const QString& detail, bool error = false);
-    void runInstall(const QString& name);
+    void runInstall(const QString& name, bool isolated = false);
     void setCurrent(const std::string& id);
     void fadeIn(QWidget* widget);
 
@@ -74,7 +75,8 @@ private:
     QComboBox* behaviorInstance_ = nullptr;
     HiBerGUI::ToastNotification* toast_ = nullptr;
     QString runLog_;
-    bool launching_ = false;
+    QSet<QString> launching_;
+    QSet<QString> started_;
     std::string currentId_;
     bool dark_ = false;
 };

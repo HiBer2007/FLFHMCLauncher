@@ -53,15 +53,29 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
     }
 
     const Workspace& workspace = Workspace::get();
-    plan.workingDir = workspace.resolveMinecraft(instance);
+    // HMCL 以 user.dir 为基准找 .minecraft；.hmcl 由 hmcl.home/hmcl.dir 指定。
+    // 默认与 .flfhmcl 同级；开启隔离时放到 .launcher/<uuid>/ 下。
+    fs::path base;
+    if (instance.isolated) {
+        base = workspace.home() / ".launcher" / instance.uuid;
+    } else {
+        base = workspace.home().parent_path();
+    }
+    const fs::path gameDir = base / ".minecraft";
+    const fs::path hmclHome = base / ".hmcl";
+    std::error_code ec;
+    fs::create_directories(gameDir, ec);
+    fs::create_directories(hmclHome, ec);
+    plan.workingDir = base;
     plan.arguments = {
         "-javaagent:" + workspace.agentJar().string(),
         "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
-        "-Dflfhmcl.gameDir=" + plan.workingDir.string(),
+        "-Dflfhmcl.gameDir=" + gameDir.string(),
         "-Dflf.instance=" + instance.id,
         "-Dflf.home=" + workspace.home().string(),
         "-Dflfhmcl.update.managed=true",
-        "-Dhmcl.home=" + workspace.resolveHmclHome(instance).string(),
+        "-Dhmcl.home=" + hmclHome.string(),
+        "-Dhmcl.dir=" + hmclHome.string(),
         "-jar",
         workspace.hmclJar().string(),
     };

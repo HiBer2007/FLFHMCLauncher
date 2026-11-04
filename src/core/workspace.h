@@ -28,6 +28,7 @@ struct Instance {
     Layer mods;
     Layer minecraft;
     Layer hmclHome;
+    bool isolated = false;       // true: .launcher/<uuid>/.minecraft + .hmcl
     std::string launchBehavior;  // "" = 继承全局；keep / hide / exit
     std::int64_t createdAt = 0;
 };

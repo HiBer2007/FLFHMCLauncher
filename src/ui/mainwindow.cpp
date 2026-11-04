@@ -642,7 +642,9 @@ void MainWindow::createInstance() {
     auto* versionLabel = new QLabel(QStringLiteral("HMCL %1（自动使用最新版）").arg(version), &dialog);
     versionLabel->setObjectName("sub");
     layout->addWidget(versionLabel);
-    auto* hint = new QLabel("Java、Fabric 与依赖库会自动准备，不需要手动配置。", &dialog);
+    auto* isolated = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", &dialog);
+    layout->addWidget(isolated);
+    auto* hint = new QLabel("不勾选时与 .flfhmcl 同级；勾选后完全独立，便于复制实例。", &dialog);
     hint->setObjectName("hint");
     hint->setWordWrap(true);
     layout->addWidget(hint);
@@ -665,16 +667,17 @@ void MainWindow::createInstance() {
         dialog.accept();
     });
     if (dialog.exec() != QDialog::Accepted) return;
-    runInstall(nameEdit->text().trimmed());
+    runInstall(nameEdit->text().trimmed(), isolated->isChecked());
 }
 
-void MainWindow::runInstall(const QString& name) {
+void MainWindow::runInstall(const QString& name, bool isolated) {
     Instance instance;
     instance.uuid = newInstanceUuid();
     instance.id = ss(makeId(name));
     instance.name = ss(name);
     instance.gameVersion = "1.21.1";
     instance.loaderVersion = "0.19.5";
+    instance.isolated = isolated;
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
     QProgressDialog progress("正在准备，请稍候…", QString(), 0, 100, this);
@@ -711,8 +714,8 @@ void MainWindow::launchSelected() {
         showToast("还没有选择实例", "先点一张实例卡片，再点启动", true);
         return;
     }
-    if (launching_) {
-        showToast("HMCL 正在运行", "请等待当前实例退出", false);
+    if (launching_.contains(qs(instance->uuid))) {
+        showToast("该实例正在运行", "可以同时启动其他实例", false);
         return;
     }
 
@@ -722,25 +725,30 @@ void MainWindow::launchSelected() {
              / ("instance-" + instance->uuid + ".log")).wstring());
     QDir().mkpath(QFileInfo(logPath).absolutePath());
     runLog_.clear();
-    launching_ = true;
+    launching_.insert(qs(instance->uuid));
 
     std::string error;
     const bool ok = launchInstanceManaged(
             *instance,
-            [this, logPath](const std::string& chunk) {
+            [this, logPath, uuid = qs(instance->uuid)](const std::string& chunk) {
                 const QString text = QString::fromUtf8(chunk.data(), static_cast<int>(chunk.size()));
-                QMetaObject::invokeMethod(this, [this, text, logPath]() {
+                QMetaObject::invokeMethod(this, [this, text, logPath, uuid]() {
                     runLog_ += text;
                     QFile file(logPath);
                     if (file.open(QIODevice::Append)) {
                         file.write(text.toUtf8());
                     }
+                    if (!started_.contains(uuid) && text.contains("Loading Done!")) {
+                        started_.insert(uuid);
+                        showToast("HMCL 启动完成", "可以开始使用了", false);
+                    }
                 }, Qt::QueuedConnection);
             },
-            [this, name](int code, const std::string& output) {
+            [this, name, uuid = qs(instance->uuid)](int code, const std::string& output) {
                 const QString text = QString::fromUtf8(output.data(), static_cast<int>(output.size()));
-                QMetaObject::invokeMethod(this, [this, code, text, name]() {
-                    launching_ = false;
+                QMetaObject::invokeMethod(this, [this, code, text, name, uuid]() {
+                    launching_.remove(uuid);
+                    started_.remove(uuid);
                     if (code == 0) {
                         showToast("HMCL 已退出", name + " 正常退出", false);
                         return;
@@ -766,7 +774,7 @@ void MainWindow::launchSelected() {
             &error);
 
     if (!ok) {
-        launching_ = false;
+        launching_.remove(qs(instance->uuid));
         showToast("启动失败", qs(error), true);
         return;
     }

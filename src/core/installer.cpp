@@ -4,6 +4,8 @@
 #include "core/meta.h"
 #include "core/library_table.h"
 
+#include <QFile>
+
 #include <windows.h>
 
 #include <algorithm>
@@ -361,6 +363,18 @@ bool ensureAgent(std::string* error) {
     if (fs::exists(local)) {
         return copyFile(local, target, error);
     }
+    // 自包含兜底：从启动器资源释放 Agent
+    QFile embedded(":/assets/agent/FLFHMCL-agent.jar");
+    if (embedded.open(QIODevice::ReadOnly)) {
+        std::error_code ec;
+        fs::create_directories(target.parent_path(), ec);
+        QFile output(QString::fromStdWString(target.wstring()));
+        if (output.open(QIODevice::WriteOnly)) {
+            output.write(embedded.readAll());
+            output.close();
+            return true;
+        }
+    }
     if (error) {
         *error = "无法获取 FLFHMCL Agent: " + (metadataError.empty() ? "本地文件缺失" : metadataError);
     }
@@ -458,48 +472,66 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
 
 bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& progress,
                         std::string* error) {
+    constexpr const char* kCrashTrackerSha256 =
+            "2c636e0da0b7e05bf4e84d16621fe72111cdf74b67000cf4adbc1d091e153ebc";
     const fs::path toolDir = Workspace::get().home() / "tools" / "CrashTracker";
     const fs::path tool = toolDir / "CrashTracker.exe";
+    auto valid = [&](const fs::path& file) {
+        return fs::exists(file) && sha256File(file) == kCrashTrackerSha256;
+    };
 
-    // 调试版 CrashTracker 依赖 Qt6Widgetsd.dll；优先使用静态链接版本
-    const bool existingIsStatic = fs::exists(tool) && fs::file_size(tool) > 5 * 1024 * 1024;
-    if (!existingIsStatic) {
-        const HttpResult response =
-                httpGet("https://api.github.com/repos/HiBer2007/CrashTracker/releases/latest");
-        if (!response.ok) {
-            if (error) *error = response.error;
-            return false;
-        }
-        try {
-            const auto json = nlohmann::json::parse(response.body);
-            std::string staticUrl;
-            std::string normalUrl;
-            for (const auto& asset : json.value("assets", nlohmann::json::array())) {
-                const std::string name = asset.value("name", "");
-                if (name == "CrashTracker_Static.exe") {
-                    staticUrl = asset.value("browser_download_url", "");
-                } else if (name == "CrashTracker.exe") {
-                    normalUrl = asset.value("browser_download_url", "");
-                }
-            }
-            const std::string url = staticUrl.empty() ? normalUrl : staticUrl;
-            if (url.empty()) {
-                if (error) *error = "CrashTracker Release 中没有可用的 exe";
-                return false;
-            }
-            const fs::path temp = tool.string() + ".tmp";
-            if (!httpDownload(url, temp, progress, error)) {
-                return false;
-            }
+    if (!valid(tool)) {
+        // 优先释放内置静态版，保证离线可用
+        bool installed = false;
+        QFile embedded(":/assets/tools/CrashTracker.exe");
+        if (embedded.open(QIODevice::ReadOnly)) {
             std::error_code ec;
             fs::create_directories(toolDir, ec);
-            fs::rename(temp, tool, ec);
-            if (ec) {
-                fs::copy_file(temp, tool, fs::copy_options::overwrite_existing, ec);
-                fs::remove(temp, ec);
+            const fs::path temp = tool.string() + ".tmp";
+            QFile output(QString::fromStdWString(temp.wstring()));
+            if (output.open(QIODevice::WriteOnly)) {
+                output.write(embedded.readAll());
+                output.close();
+                if (valid(temp)) {
+                    fs::rename(temp, tool, ec);
+                    installed = !ec;
+                }
+                if (ec) {
+                    fs::remove(temp, ec);
+                }
             }
-        } catch (const std::exception& e) {
-            if (error) *error = std::string("解析 CrashTracker Release 失败: ") + e.what();
+        }
+
+        // 内置版本不可用时再尝试更新
+        if (!installed) {
+            const HttpResult response =
+                    httpGet("https://api.github.com/repos/HiBer2007/CrashTracker/releases/latest");
+            if (response.ok) {
+                try {
+                    const auto json = nlohmann::json::parse(response.body);
+                    std::string url;
+                    for (const auto& asset : json.value("assets", nlohmann::json::array())) {
+                        if (asset.value("name", "") == "CrashTracker_Static.exe") {
+                            url = asset.value("browser_download_url", "");
+                        }
+                    }
+                    if (!url.empty()) {
+                        const fs::path temp = tool.string() + ".tmp";
+                        if (httpDownload(url, temp, progress, nullptr) && valid(temp)) {
+                            std::error_code ec;
+                            fs::rename(temp, tool, ec);
+                            installed = !ec;
+                            fs::remove(temp, ec);
+                        }
+                    }
+                } catch (...) {
+                    // 保持失败
+                }
+            }
+        }
+
+        if (!installed) {
+            if (error) *error = "内置 CrashTracker 校验失败且无法下载";
             return false;
         }
     }
@@ -509,5 +541,4 @@ bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& p
     fs::copy_file(tool, beside, fs::copy_options::overwrite_existing, ec);
     return true;
 }
-
 } // namespace flf
