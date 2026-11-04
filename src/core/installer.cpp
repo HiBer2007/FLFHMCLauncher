@@ -434,7 +434,28 @@ bool installFlfDependencies(const FlfRelease& release, const ProgressFn& progres
     return true;
 }
 bool repairInstanceMetadata(Instance& instance, std::string* error) {
-    // 1. 补全记录表中的缺失库
+    const ProgressFn quiet = [](const std::string&, int) {};
+    // 1. Java
+    if (!ensureJava(instance, quiet, error)) {
+        return false;
+    }
+    // 2. Agent
+    if (!ensureAgent(instance.agentVersion, quiet, error)) {
+        return false;
+    }
+    // 3. HMCL
+    if (!fs::exists(Workspace::get().hmclJar(instance))) {
+        if (!installHmcl(instance, quiet, error)) {
+            return false;
+        }
+    }
+    // 4. 选定 Fabric Loader
+    if (!LibraryTable::instance().ensure("net.fabricmc", "fabric-loader",
+                                         instance.loaderVersion, "",
+                                         "https://maven.fabricmc.net/", error)) {
+        return false;
+    }
+    // 5. 补全记录表中的缺失库
     for (const auto& entry : LibraryTable::instance().entries()) {
         if (!LibraryTable::instance().restore(entry, error)) {
             return false;
