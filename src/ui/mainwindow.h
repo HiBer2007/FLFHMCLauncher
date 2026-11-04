@@ -3,6 +3,8 @@
 #include "core/workspace.h"
 
 #include <QMainWindow>
+#include <QHash>
+#include <QList>
 #include <QSet>
 
 class QLabel;
@@ -112,7 +114,12 @@ private:
     QLabel* installTitle_ = nullptr;
     QLabel* installPercent_ = nullptr;
     QProgressBar* installBar_ = nullptr;
-    QTreeWidget* installTasks_ = nullptr;
+    QVBoxLayout* installStepsLayout_ = nullptr;
+    QList<QWidget*> installStepWidgets_;
+    QList<QLabel*> installStepLabels_;
+    QList<QProgressBar*> installStepBars_;
+    QList<QVBoxLayout*> installStepDetails_;
+    QHash<QString, QProgressBar*> installDetailBars_;
     QProgressBar* installRightBar_ = nullptr;
     QPushButton* installRetry_ = nullptr;
     QPropertyAnimation* installAnim_ = nullptr;

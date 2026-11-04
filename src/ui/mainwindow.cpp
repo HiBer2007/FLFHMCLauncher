@@ -555,9 +555,16 @@ QWidget* MainWindow::buildInstallPage() {
     installRightBar_ = new QProgressBar(right);
     installRightBar_->setRange(0, 100);
     rightLayout->addWidget(installRightBar_);
-    installTasks_ = new QTreeWidget(right);
-    installTasks_->setHeaderHidden(true);
-    rightLayout->addWidget(installTasks_, 1);
+    auto* scroll = new QScrollArea(right);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* stepsHost = new QWidget(scroll);
+    installStepsLayout_ = new QVBoxLayout(stepsHost);
+    installStepsLayout_->setContentsMargins(0, 0, 0, 0);
+    installStepsLayout_->setSpacing(8);
+    installStepsLayout_->addStretch();
+    scroll->setWidget(stepsHost);
+    rightLayout->addWidget(scroll, 1);
     installRetry_ = new QPushButton("重试", right);
     installRetry_->setObjectName("primary");
     installRetry_->hide();
@@ -610,12 +617,38 @@ void MainWindow::beginInstall() {
     instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1";
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
-    installTasks_->clear();
-    for (const QString& step : {"准备 Java", "下载 JavaFX", "安装 Fabric",
-                                "安装依赖库", "下载 HMCL", "下载 FLFHMCL Agent",
-                                "写入实例配置"}) {
-        auto* item = new QTreeWidgetItem(installTasks_);
-        item->setText(0, "· " + step);
+    installDetailBars_.clear();
+    if (installStepsLayout_) {
+        while (installStepWidgets_.size() < 7) {
+            auto* card = new QFrame(this);
+            card->setObjectName("card");
+            auto* layout = new QVBoxLayout(card);
+            layout->setContentsMargins(10, 8, 10, 8);
+            auto* label = new QLabel("· 等待", card);
+            auto* bar = new QProgressBar(card);
+            bar->setRange(0, 100);
+            bar->setValue(0);
+            layout->addWidget(label);
+            layout->addWidget(bar);
+            auto* details = new QVBoxLayout();
+            layout->addLayout(details);
+            installStepsLayout_->insertWidget(installStepsLayout_->count() - 1, card);
+            installStepWidgets_.append(card);
+            installStepLabels_.append(label);
+            installStepBars_.append(bar);
+            installStepDetails_.append(details);
+        }
+        const QStringList names = {"准备 Java", "下载 JavaFX", "安装 Fabric",
+                                   "安装依赖库", "下载 HMCL", "下载 FLFHMCL Agent",
+                                   "写入实例配置"};
+        for (int i = 0; i < names.size(); ++i) {
+            installStepLabels_[i]->setText("· " + names[i]);
+            installStepBars_[i]->setValue(0);
+            while (QLayoutItem* item = installStepDetails_[i]->takeAt(0)) {
+                if (item->widget()) item->widget()->deleteLater();
+                delete item;
+            }
+        }
     }
     installBar_->setRange(0, 0);
     installPercent_->setText("准备中…");
@@ -636,7 +669,7 @@ void MainWindow::beginInstall() {
 }
 
 void MainWindow::updateInstallStep(const QString& step, int percent) {
-    if (!installTasks_ || !installBar_) return;
+    if (!installBar_ || !installRightBar_) return;
     if (installBar_->maximum() == 0) {
         installBar_->setRange(0, 100);
         installRightBar_->setRange(0, 100);
@@ -652,28 +685,56 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
     installRightBar_->setValue(percent);
     installPercent_->setText(QStringLiteral("%1 %").arg(percent));
     installTitle_->setText(step);
-    int active = 0;
-    if (percent >= 92) active = 6;
-    else if (percent >= 75) active = 5;
-    else if (percent >= 62) active = 4;
-    else if (percent >= 30) active = 3;
-    else if (percent >= 10) active = 2;
-    else if (percent >= 5) active = 1;
-    for (int i = 0; i < installTasks_->topLevelItemCount(); ++i) {
-        QTreeWidgetItem* item = installTasks_->topLevelItem(i);
-        QString text = item->text(0);
-        text.remove(0, 2);
-        if (i < active) item->setText(0, "✓ " + text);
-        else if (i == active) {
-            item->setText(0, "… " + text);
-            if (item->childCount() == 0 || item->child(item->childCount() - 1)->text(0) != step) {
-                new QTreeWidgetItem(item, QStringList{step});
-            }
-        } else item->setText(0, "· " + text);
-    }
-    installTasks_->expandAll();
-}
 
+    static const int bounds[] = {0, 5, 10, 30, 62, 75, 92, 100};
+    int active = 6;
+    for (int i = 0; i < 6; ++i) {
+        if (percent >= bounds[i] && percent < bounds[i + 1]) {
+            active = i;
+            break;
+        }
+    }
+    for (int i = 0; i < installStepBars_.size(); ++i) {
+        if (i < active) {
+            installStepBars_[i]->setValue(100);
+            QString text = installStepLabels_[i]->text();
+            text.remove(0, 2);
+            installStepLabels_[i]->setText("✓ " + text);
+        } else if (i == active) {
+            const int span = std::max(1, bounds[i + 1] - bounds[i]);
+            const int local = qBound(0, (percent - bounds[i]) * 100 / span, 100);
+            installStepBars_[i]->setValue(local);
+            QString text = installStepLabels_[i]->text();
+            text.remove(0, 2);
+            installStepLabels_[i]->setText("… " + text);
+            const bool detail = step.contains(':') || step.startsWith("JavaFX")
+                    || step.startsWith("HMCL ");
+            if (detail && i < installStepDetails_.size()) {
+                QProgressBar* detailBar = installDetailBars_.value(step, nullptr);
+                if (detailBar == nullptr) {
+                    auto* row = new QWidget(this);
+                    auto* rowLayout = new QVBoxLayout(row);
+                    rowLayout->setContentsMargins(16, 0, 0, 0);
+                    auto* label = new QLabel(step, row);
+                    label->setObjectName("hint");
+                    detailBar = new QProgressBar(row);
+                    detailBar->setRange(0, 100);
+                    detailBar->setFixedHeight(5);
+                    rowLayout->addWidget(label);
+                    rowLayout->addWidget(detailBar);
+                    installStepDetails_[i]->addWidget(row);
+                    installDetailBars_.insert(step, detailBar);
+                }
+                detailBar->setValue(local);
+            }
+        } else {
+            installStepBars_[i]->setValue(0);
+            QString text = installStepLabels_[i]->text();
+            text.remove(0, 2);
+            installStepLabels_[i]->setText("· " + text);
+        }
+    }
+}
 void MainWindow::finishInstall(const Instance& instance, bool ok, const QString& error) {
     if (!ok) {
         installFailed_ = true;

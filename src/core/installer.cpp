@@ -175,7 +175,8 @@ bool installFabric(Instance& instance, const ProgressFn& progress, std::string* 
         }
         ++index;
         progress("Fabric 库 " + std::to_string(index) + "/"
-                         + std::to_string(libraries.size()), 30 + index * 30 / std::max<int>(1, libraries.size()));
+                         + std::to_string(libraries.size()) + ": " + group + ":" + artifact + ":" + version,
+                 30 + index * 30 / std::max<int>(1, libraries.size()));
     }
     progress("Fabric 已就绪", 60);
     return true;
@@ -217,7 +218,8 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
                 return false;
             }
             const int percent = basePercent + static_cast<int>((i + 1) * span / count);
-            progress(std::string(owner) + " " + std::to_string(i + 1) + "/" + std::to_string(count),
+            progress(std::string(owner) + " " + std::to_string(i + 1) + "/" + std::to_string(count)
+                             + ": " + dependency.artifact + "-" + dependency.version,
                      percent);
         }
         return true;
