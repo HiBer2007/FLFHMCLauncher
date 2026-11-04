@@ -11,6 +11,7 @@
 #include <QFile>
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
 #include <QDialog>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -67,6 +68,15 @@ QString makeId(const QString& name) {
     int suffix = 2;
     while (Workspace::get().find(ss(candidate)) != nullptr) candidate = id + "-" + QString::number(suffix++);
     return candidate;
+}
+
+/// 返回实例 HMCL home 下最新的崩溃报告文件；不存在返回空。
+QString latestCrashReport(const Instance& instance) {
+    const fs::path dir = Workspace::get().resolveHmclHome(instance) / "crash-report";
+    QDir qdir(qs(dir.string()));
+    if (!qdir.exists()) return {};
+    const QFileInfoList files = qdir.entryInfoList({"*.txt"}, QDir::Files, QDir::Time);
+    return files.isEmpty() ? QString() : files.front().absoluteFilePath();
 }
 } // namespace
 
@@ -1712,8 +1722,20 @@ void MainWindow::launchSelected() {
                         showToast("HMCL 已退出", name + " 正常退出", false);
                         return;
                     }
+                    QString reportPath;
+                    QString reportText;
+                    if (Instance* target = Workspace::get().find(ss(uuid))) {
+                        reportPath = latestCrashReport(*target);
+                    }
+                    if (!reportPath.isEmpty()) {
+                        QFile report(reportPath);
+                        if (report.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                            reportText = QString::fromUtf8(report.read(16384));
+                        }
+                    }
+                    const QString allText = text + "\n" + reportText;
                     QStringList details;
-                    for (const QString& line : text.split('\n')) {
+                    for (const QString& line : allText.split('\n')) {
                         if (line.contains("Exception") || line.contains("Error")
                                 || line.contains("Caused by") || line.contains("crash")) {
                             details.append(line.trimmed());
@@ -1722,28 +1744,34 @@ void MainWindow::launchSelected() {
                     if (details.size() > 12) {
                         details = details.mid(details.size() - 12);
                     }
-                    const QString summary = details.isEmpty()
-                            ? QStringLiteral("未从输出中找到异常行，请查看实例日志。")
+                    QString summary = details.isEmpty()
+                            ? QStringLiteral("未从输出或崩溃报告中找到异常行，请查看实例日志。")
                             : details.join("\n");
+                    if (!reportPath.isEmpty()) {
+                        summary += QStringLiteral("\n\n崩溃报告：%1").arg(reportPath);
+                    }
                     QString cause;
                     QString advice;
-                    if (text.contains("Configuration hasn't been loaded")
-                            && text.contains("AnimationUtils")) {
+                    if (allText.contains("Configuration hasn't been loaded")
+                            && allText.contains("AnimationUtils")) {
                         cause = "HMCL 关闭动画初始化失败";
-                        advice = "这是 FLFHMCL 在 HMCL 关闭阶段提前加载 JavaFX 动画类导致的异常，不是实例文件损坏。建议更新 FLFHMCL；临时可关闭 HMCL 的窗口动画。";
-                    } else if (text.contains("duplicate fabric loader")) {
+                        advice = "这是 FLFHMCL 关闭阶段的 JavaFX 初始化异常。请更新到 FLFHMCL 2.1.5 或更高版本。";
+                    } else if (allText.contains("Configuration is already loaded")) {
+                        cause = "HMCL 设置重复初始化";
+                        advice = "当前 FLFHMCL 版本存在启动顺序问题，请更新到 2.1.5 或更高版本。";
+                    } else if (allText.contains("duplicate fabric loader")) {
                         cause = "检测到重复的 Fabric Loader 版本";
                         advice = "点击“修复实例”会按实例选定的版本重建清单，并清理重复 Loader。";
-                    } else if (text.contains("Bootstrap failed")) {
+                    } else if (allText.contains("Bootstrap failed")) {
                         cause = "Fabric Loader 引导失败";
                         advice = "点击“修复实例”可补全 Agent、HMCL、Fabric Loader 并重建配置。";
-                    } else if (text.contains("UnsupportedClassVersion")) {
+                    } else if (allText.contains("UnsupportedClassVersion")) {
                         cause = "Java 版本不匹配";
                         advice = "请把实例 Java 切换到更高版本，或更新目标组件。";
-                    } else if (text.contains("OutOfMemoryError")) {
+                    } else if (allText.contains("OutOfMemoryError")) {
                         cause = "内存不足";
                         advice = "请降低内存分配或关闭其它程序。";
-                    } else if (text.contains("NoClassDefFoundError")) {
+                    } else if (allText.contains("NoClassDefFoundError")) {
                         cause = "类加载失败";
                         advice = "可能是组件版本不匹配或库缺失，可尝试修复实例。";
                     } else {
@@ -1757,6 +1785,10 @@ void MainWindow::launchSelected() {
                             .arg(advice).arg(failed && code == 0 ? 1 : code).arg(summary));
                     auto* repairButton = box.addButton("修复实例", QMessageBox::AcceptRole);
                     auto* copyButton = box.addButton("复制诊断", QMessageBox::ActionRole);
+                    QPushButton* openButton = nullptr;
+                    if (!reportPath.isEmpty()) {
+                        openButton = box.addButton("打开报告", QMessageBox::ActionRole);
+                    }
                     box.addButton("关闭", QMessageBox::RejectRole);
                     box.exec();
                     if (box.clickedButton() == repairButton) {
@@ -1765,9 +1797,11 @@ void MainWindow::launchSelected() {
                         }
                     } else if (box.clickedButton() == copyButton) {
                         QApplication::clipboard()->setText(
-                                QStringLiteral("%1\n退出代码：%2\n\n%3")
-                                        .arg(cause).arg(code).arg(text));
+                                QStringLiteral("%1\n退出代码：%2\n\n%3\n\n报告：%4")
+                                        .arg(cause).arg(code).arg(allText).arg(reportPath));
                         showToast("诊断已复制", "可以粘贴到反馈中", false);
+                    } else if (openButton != nullptr && box.clickedButton() == openButton) {
+                        QDesktopServices::openUrl(QUrl::fromLocalFile(reportPath));
                     }
                     showToast("HMCL 异常退出", cause, true);
                 }, Qt::QueuedConnection);
