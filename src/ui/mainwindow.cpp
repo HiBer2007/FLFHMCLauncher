@@ -108,6 +108,8 @@ void MainWindow::applyTheme() {
         QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; border: none; }
         QMenu { background: %2; color: %3; border: 1px solid %6; }
         QMenu::item:selected { background: %8; }
+        QProgressBar { background: %7; border: 1px solid %6; border-radius: 4px; height: 7px; text-align: center; }
+        QProgressBar::chunk { background: #2f7cf6; border-radius: 3px; }
     )").arg(bg, card, text, sub, border, "", input, hover);
     if (qApp) qApp->setStyleSheet(qss);
 }
@@ -427,6 +429,12 @@ QWidget* MainWindow::buildCreatePage() {
     form->addWidget(agentLabel);
     createAgent_ = new QComboBox(card);
     form->addWidget(createAgent_);
+    createBusy_ = new QProgressBar(card);
+    createBusy_->setRange(0, 0);
+    createBusy_->setTextVisible(false);
+    createBusy_->setFixedHeight(4);
+    createBusy_->hide();
+    form->addWidget(createBusy_);
 
     createIsolated_ = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", card);
     form->addWidget(createIsolated_);
@@ -525,8 +533,8 @@ void MainWindow::beginInstall() {
                                 "写入实例配置"}) {
         installTasks_->addItem("· " + step);
     }
-    installBar_->setValue(0);
-    installPercent_->setText("0 %");
+    installBar_->setRange(0, 0);
+    installPercent_->setText("准备中…");
     installTitle_->setText("正在准备 " + name);
     showPage(6);
 
@@ -545,6 +553,9 @@ void MainWindow::beginInstall() {
 
 void MainWindow::updateInstallStep(const QString& step, int percent) {
     if (!installTasks_ || !installBar_) return;
+    if (installBar_->maximum() == 0) {
+        installBar_->setRange(0, 100);
+    }
     installBar_->setValue(percent);
     installPercent_->setText(QStringLiteral("%1 %").arg(percent));
     installTitle_->setText(step);
@@ -814,8 +825,13 @@ void MainWindow::showToast(const QString& title, const QString& detail, bool err
 
 void MainWindow::createInstance() {
     showPage(5);
-    if (createAgent_ && createAgent_->count() == 0) {
-        createAgent_->addItem("FLFHMCL 2.1", "2.1");
+    if (createAgent_) {
+        createAgent_->clear();
+        createAgent_->addItem("正在加载 FLFHMCL 版本…");
+        createAgent_->setEnabled(false);
+    }
+    if (createBusy_) {
+        createBusy_->show();
     }
     // 版本列表在后台获取，避免点击时卡顿
     std::thread([this]() {
@@ -830,7 +846,9 @@ void MainWindow::createInstance() {
             latest = qs(release.version);
         }
         QMetaObject::invokeMethod(this, [this, versions, latest]() {
+            if (createBusy_) createBusy_->hide();
             if (!createAgent_) return;
+            createAgent_->setEnabled(true);
             createAgent_->clear();
             for (const QString& version : versions) {
                 createAgent_->addItem("FLFHMCL " + version, version);
@@ -1035,14 +1053,22 @@ void MainWindow::refreshMods() {
 void MainWindow::openSettings() { showPage(1); }
 
 void MainWindow::checkUpdate() {
-    std::string error;
-    const HmclRelease release = fetchHmclRelease(&error);
-    if (!release.ok) { showToast("检查更新失败", qs(error), true); return; }
-    if (release.version == Workspace::get().config().hmclVersion) {
-        showToast("已经是最新版本", QStringLiteral("HMCL %1").arg(qs(release.version)), false);
-        return;
-    }
-    showToast("发现新版本", QStringLiteral("HMCL %1 可用").arg(qs(release.version)), false);
+    showToast("正在检查更新…", "请稍候", false);
+    std::thread([this]() {
+        std::string error;
+        const HmclRelease release = fetchHmclRelease(&error);
+        QMetaObject::invokeMethod(this, [this, release, error = qs(error)]() {
+            if (!release.ok) {
+                showToast("检查更新失败", error, true);
+                return;
+            }
+            if (release.version == Workspace::get().config().hmclVersion) {
+                showToast("已经是最新版本", QStringLiteral("HMCL %1").arg(qs(release.version)), false);
+                return;
+            }
+            showToast("发现新版本", QStringLiteral("HMCL %1 可用").arg(qs(release.version)), false);
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void MainWindow::openFolder() {
