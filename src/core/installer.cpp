@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <fstream>
 #include <set>
+#include <vector>
 
 namespace flf {
 namespace {
