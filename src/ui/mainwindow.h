@@ -61,6 +61,12 @@ private:
     void beginInstall();
     void fillVersionCombo(QComboBox* channel, QComboBox* version,
                           const QStringList& stable, const QStringList& preview);
+    void startAgentLoad();
+    void startHmclLoad();
+    void startFabricLoad();
+    void stopAgentLoad();
+    void stopHmclLoad();
+    void stopFabricLoad();
     void updateInstallStep(const QString& step, int percent);
     void finishInstall(const Instance& instance, bool ok, const QString& error);
     void applyTheme();
@@ -90,6 +96,15 @@ private:
     QProgressBar* agentBusy_ = nullptr;
     QProgressBar* hmclBusy_ = nullptr;
     QProgressBar* fabricBusy_ = nullptr;
+    QPushButton* agentRefresh_ = nullptr;
+    QPushButton* agentStop_ = nullptr;
+    QPushButton* hmclRefresh_ = nullptr;
+    QPushButton* hmclStop_ = nullptr;
+    QPushButton* fabricRefresh_ = nullptr;
+    QPushButton* fabricStop_ = nullptr;
+    int agentToken_ = 0;
+    int hmclToken_ = 0;
+    int fabricToken_ = 0;
     QLabel* installTitle_ = nullptr;
     QLabel* installPercent_ = nullptr;
     QProgressBar* installBar_ = nullptr;

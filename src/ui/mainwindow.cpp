@@ -429,6 +429,11 @@ QWidget* MainWindow::buildCreatePage() {
     createHmcl_->setEnabled(false);
     hmclRow->addWidget(createHmclChannel_, 1);
     hmclRow->addWidget(createHmcl_, 2);
+    hmclRefresh_ = new QPushButton("刷新", card);
+    hmclStop_ = new QPushButton("停止", card);
+    hmclStop_->setEnabled(false);
+    hmclRow->addWidget(hmclRefresh_);
+    hmclRow->addWidget(hmclStop_);
     form->addLayout(hmclRow);
     hmclBusy_ = new QProgressBar(card);
     hmclBusy_->setRange(0, 0);
@@ -446,6 +451,11 @@ QWidget* MainWindow::buildCreatePage() {
     createAgent_->setEnabled(false);
     agentRow->addWidget(createAgentChannel_, 1);
     agentRow->addWidget(createAgent_, 2);
+    agentRefresh_ = new QPushButton("刷新", card);
+    agentStop_ = new QPushButton("停止", card);
+    agentStop_->setEnabled(false);
+    agentRow->addWidget(agentRefresh_);
+    agentRow->addWidget(agentStop_);
     form->addLayout(agentRow);
     agentBusy_ = new QProgressBar(card);
     agentBusy_->setRange(0, 0);
@@ -455,10 +465,17 @@ QWidget* MainWindow::buildCreatePage() {
 
     auto* fabricLabel = new QLabel("Fabric Loader 版本", card);
     form->addWidget(fabricLabel);
+    auto* fabricRow = new QHBoxLayout();
     createFabric_ = new QComboBox(card);
     createFabric_->addItem("正在加载 Fabric 版本…");
     createFabric_->setEnabled(false);
-    form->addWidget(createFabric_);
+    fabricRefresh_ = new QPushButton("刷新", card);
+    fabricStop_ = new QPushButton("停止", card);
+    fabricStop_->setEnabled(false);
+    fabricRow->addWidget(createFabric_, 1);
+    fabricRow->addWidget(fabricRefresh_);
+    fabricRow->addWidget(fabricStop_);
+    form->addLayout(fabricRow);
     fabricBusy_ = new QProgressBar(card);
     fabricBusy_->setRange(0, 0);
     fabricBusy_->setTextVisible(false);
@@ -471,6 +488,12 @@ QWidget* MainWindow::buildCreatePage() {
     connect(createAgentChannel_, &QComboBox::currentIndexChanged, this, [this](int) {
         fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
     });
+    connect(hmclRefresh_, &QPushButton::clicked, this, [this]() { startHmclLoad(); });
+    connect(hmclStop_, &QPushButton::clicked, this, [this]() { stopHmclLoad(); });
+    connect(agentRefresh_, &QPushButton::clicked, this, [this]() { startAgentLoad(); });
+    connect(agentStop_, &QPushButton::clicked, this, [this]() { stopAgentLoad(); });
+    connect(fabricRefresh_, &QPushButton::clicked, this, [this]() { startFabricLoad(); });
+    connect(fabricStop_, &QPushButton::clicked, this, [this]() { stopFabricLoad(); });
     createIsolated_ = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", card);
     form->addWidget(createIsolated_);
 
@@ -486,7 +509,12 @@ QWidget* MainWindow::buildCreatePage() {
     buttons->addWidget(start);
     layout->addLayout(buttons);
 
-    connect(back, &QPushButton::clicked, this, [this]() { showPage(0); });
+    connect(back, &QPushButton::clicked, this, [this]() {
+        stopAgentLoad();
+        stopHmclLoad();
+        stopFabricLoad();
+        showPage(0);
+    });
     connect(start, &QPushButton::clicked, this, &MainWindow::beginInstall);
     return page;
 }
@@ -551,19 +579,15 @@ void MainWindow::beginInstall() {
         createError_->setText("名称不能为空");
         return;
     }
+    QString duplicateName;
     for (const auto& instance : Workspace::get().instances()) {
         if (qs(instance.name) == name) {
-            createError_->setText("不可与现有实例重名");
-            return;
+            duplicateName = "已有同名实例；仍会按 UUID 独立存储";
         }
     }
-    const QString id = makeId(name);
-    if (fs::exists(Workspace::get().home() / "instances" / ss(id))) {
-        createError_->setText("实例目录已存在，请换一个名称");
-        return;
-    }
-    createError_->clear();
+    if (createError_) createError_->setText(duplicateName);
 
+    const QString id = makeId(name);
     Instance instance;
     instance.uuid = newInstanceUuid();
     instance.id = ss(id);
@@ -874,20 +898,23 @@ void MainWindow::showToast(const QString& title, const QString& detail, bool err
 
 void MainWindow::createInstance() {
     showPage(5);
+    startAgentLoad();
+    startHmclLoad();
+    startFabricLoad();
+}
 
-    auto beginLoading = [](QComboBox* combo, QProgressBar* busy, const QString& text) {
-        if (combo) {
-            combo->clear();
-            combo->addItem(text);
-            combo->setEnabled(false);
-        }
-        if (busy) busy->show();
-    };
-    beginLoading(createAgent_, agentBusy_, "正在加载 FLFHMCL 版本…");
-    beginLoading(createHmcl_, hmclBusy_, "正在加载 HMCL 版本…");
-    beginLoading(createFabric_, fabricBusy_, "正在加载 Fabric 版本…");
+void MainWindow::startAgentLoad() {
+    const int token = ++agentToken_;
+    if (createAgent_) {
+        createAgent_->clear();
+        createAgent_->addItem("正在加载 FLFHMCL 版本…");
+        createAgent_->setEnabled(false);
+    }
+    if (agentBusy_) agentBusy_->show();
+    if (agentStop_) agentStop_->setEnabled(true);
+    if (agentRefresh_) agentRefresh_->setEnabled(false);
 
-    std::thread([this]() {
+    std::thread([this, token]() {
         std::string error;
         const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
         QStringList versions;
@@ -896,8 +923,11 @@ void MainWindow::createInstance() {
             for (const auto& item : release.versions) versions.append(qs(item.version));
             latest = qs(release.version);
         }
-        QMetaObject::invokeMethod(this, [this, versions, latest]() {
+        QMetaObject::invokeMethod(this, [this, token, versions, latest]() {
+            if (token != agentToken_) return;
             if (agentBusy_) agentBusy_->hide();
+            if (agentStop_) agentStop_->setEnabled(false);
+            if (agentRefresh_) agentRefresh_->setEnabled(true);
             if (!createAgent_) return;
             agentStable_.clear();
             agentPreview_.clear();
@@ -911,15 +941,30 @@ void MainWindow::createInstance() {
             if (index >= 0) createAgent_->setCurrentIndex(index);
         }, Qt::QueuedConnection);
     }).detach();
+}
 
-    std::thread([this]() {
+void MainWindow::startHmclLoad() {
+    const int token = ++hmclToken_;
+    if (createHmcl_) {
+        createHmcl_->clear();
+        createHmcl_->addItem("正在加载 HMCL 版本…");
+        createHmcl_->setEnabled(false);
+    }
+    if (hmclBusy_) hmclBusy_->show();
+    if (hmclStop_) hmclStop_->setEnabled(true);
+    if (hmclRefresh_) hmclRefresh_->setEnabled(false);
+
+    std::thread([this, token]() {
         bool githubAvailable = false;
         std::string error;
         const auto versions = fetchHmclVersions(&githubAvailable, &error);
         QStringList list;
         for (const auto& version : versions) list.append(qs(version));
-        QMetaObject::invokeMethod(this, [this, list, githubAvailable]() {
+        QMetaObject::invokeMethod(this, [this, token, list, githubAvailable]() {
+            if (token != hmclToken_) return;
             if (hmclBusy_) hmclBusy_->hide();
+            if (hmclStop_) hmclStop_->setEnabled(false);
+            if (hmclRefresh_) hmclRefresh_->setEnabled(true);
             if (!createHmcl_) return;
             hmclStable_.clear();
             hmclPreview_.clear();
@@ -934,14 +979,29 @@ void MainWindow::createInstance() {
             }
         }, Qt::QueuedConnection);
     }).detach();
+}
 
-    std::thread([this]() {
+void MainWindow::startFabricLoad() {
+    const int token = ++fabricToken_;
+    if (createFabric_) {
+        createFabric_->clear();
+        createFabric_->addItem("正在加载 Fabric 版本…");
+        createFabric_->setEnabled(false);
+    }
+    if (fabricBusy_) fabricBusy_->show();
+    if (fabricStop_) fabricStop_->setEnabled(true);
+    if (fabricRefresh_) fabricRefresh_->setEnabled(false);
+
+    std::thread([this, token]() {
         std::string error;
         const auto loaders = fetchFabricLoaders("1.21.1", &error);
         QStringList list;
         for (const auto& loader : loaders) list.append(qs(loader));
-        QMetaObject::invokeMethod(this, [this, list]() {
+        QMetaObject::invokeMethod(this, [this, token, list]() {
+            if (token != fabricToken_) return;
             if (fabricBusy_) fabricBusy_->hide();
+            if (fabricStop_) fabricStop_->setEnabled(false);
+            if (fabricRefresh_) fabricRefresh_->setEnabled(true);
             if (!createFabric_) return;
             createFabric_->setEnabled(true);
             createFabric_->clear();
@@ -949,6 +1009,42 @@ void MainWindow::createInstance() {
             if (list.isEmpty()) createFabric_->addItem("Fabric 0.19.5", "0.19.5");
         }, Qt::QueuedConnection);
     }).detach();
+}
+
+void MainWindow::stopAgentLoad() {
+    ++agentToken_;
+    if (agentBusy_) agentBusy_->hide();
+    if (agentStop_) agentStop_->setEnabled(false);
+    if (agentRefresh_) agentRefresh_->setEnabled(true);
+    if (createAgent_) {
+        createAgent_->clear();
+        createAgent_->addItem("已停止");
+        createAgent_->setEnabled(false);
+    }
+}
+
+void MainWindow::stopHmclLoad() {
+    ++hmclToken_;
+    if (hmclBusy_) hmclBusy_->hide();
+    if (hmclStop_) hmclStop_->setEnabled(false);
+    if (hmclRefresh_) hmclRefresh_->setEnabled(true);
+    if (createHmcl_) {
+        createHmcl_->clear();
+        createHmcl_->addItem("已停止");
+        createHmcl_->setEnabled(false);
+    }
+}
+
+void MainWindow::stopFabricLoad() {
+    ++fabricToken_;
+    if (fabricBusy_) fabricBusy_->hide();
+    if (fabricStop_) fabricStop_->setEnabled(false);
+    if (fabricRefresh_) fabricRefresh_->setEnabled(true);
+    if (createFabric_) {
+        createFabric_->clear();
+        createFabric_->addItem("已停止");
+        createFabric_->setEnabled(false);
+    }
 }
 void MainWindow::runInstall(const QString& name, bool isolated, const QString& agentVersion) {
     Instance instance;

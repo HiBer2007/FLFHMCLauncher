@@ -152,6 +152,13 @@ void Workspace::initialize() {
                     instance.uuid = newInstanceUuid();
                     seenUuids.insert(instance.uuid);
                 }
+                // 旧版按 id 存目录，迁移到 uuid 目录
+                const fs::path legacy = home_ / "instances" / instance.id;
+                const fs::path target = home_ / "instances" / instance.uuid;
+                if (instance.id != instance.uuid && fs::exists(legacy) && !fs::exists(target)) {
+                    std::error_code moveEc;
+                    fs::rename(legacy, target, moveEc);
+                }
                 instances_.push_back(instance);
             }
             saveInstances();
@@ -222,7 +229,8 @@ void Workspace::saveInstances() {
 }
 
 fs::path Workspace::instanceDir(const Instance& instance) const {
-    return home_ / "instances" / instance.id;
+    const std::string folder = instance.uuid.empty() ? instance.id : instance.uuid;
+    return home_ / "instances" / folder;
 }
 
 fs::path Workspace::sharedDir(const char* kind, const Layer& layer) const {
