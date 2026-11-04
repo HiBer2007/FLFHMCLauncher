@@ -434,6 +434,26 @@ bool installFlfDependencies(const FlfRelease& release, const ProgressFn& progres
     return true;
 }
 bool repairInstanceMetadata(Instance& instance, std::string* error) {
+    // 1. 补全记录表中的缺失库
+    for (const auto& entry : LibraryTable::instance().entries()) {
+        if (!LibraryTable::instance().restore(entry, error)) {
+            return false;
+        }
+    }
+    // 2. 重新生成 profile 配置
+    std::error_code ec;
+    const fs::path profile = Workspace::get().profileDir(instance);
+    fs::create_directories(profile, ec);
+    std::ofstream(profile / "instance.json") << toJson(instance).dump(2);
+    nlohmann::json launch = {
+        {"instance", instance.uuid},
+        {"gameDir", Workspace::get().resolveMinecraft(instance).string()},
+        {"hmclHome", Workspace::get().resolveHmclHome(instance).string()},
+        {"mods", Workspace::get().resolveMods(instance).string()},
+        {"manifest", Workspace::get().manifestPath(instance).string()},
+    };
+    std::ofstream(profile / "launch.json") << launch.dump(2);
+    // 3. 重新生成清单
     return writeMclhrManifest(instance, error);
 }
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error) {

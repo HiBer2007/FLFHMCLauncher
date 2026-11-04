@@ -116,6 +116,23 @@ void LibraryTable::record(const LibraryRecord& entry) {
     entries_.push_back(entry);
 }
 
+bool LibraryTable::restore(const LibraryRecord& entry, std::string* error) {
+    const fs::path target = Workspace::get().librariesDir() / entry.file;
+    std::error_code ec;
+    if (fs::exists(target)) return true;
+    if (!entry.sha256.empty()) {
+        const fs::path cached = Workspace::get().home() / "cache" / entry.sha256;
+        if (fs::exists(cached)) {
+            fs::copy_file(cached, target, fs::copy_options::overwrite_existing, ec);
+            if (!ec) return true;
+        }
+    }
+    if (entry.source.empty()) {
+        if (error) *error = "缺少下载源: " + entry.file;
+        return false;
+    }
+    return httpDownload(entry.source, target, nullptr, error);
+}
 bool LibraryTable::ensure(const std::string& group,
                           const std::string& artifact,
                           const std::string& version,

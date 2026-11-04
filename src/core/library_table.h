@@ -35,6 +35,9 @@ public:
 
     const std::vector<LibraryRecord>& entries() const { return entries_; }
 
+    /// 目标缺失时按记录中的 source/哈希恢复文件。
+    bool restore(const LibraryRecord& entry, std::string* error);
+
     /// 记录表路径（.flfhmcl/libraries.json）。
     const fs::path& file() const { return file_; }
 
