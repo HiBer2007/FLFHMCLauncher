@@ -58,14 +58,9 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
     const Workspace& workspace = Workspace::get();
     // HMCL 以 user.dir 为基准找 .minecraft；.hmcl 由 hmcl.home/hmcl.dir 指定。
     // 默认与 .flfhmcl 同级；开启隔离时放到 .launcher/<uuid>/ 下。
-    fs::path base;
-    if (instance.isolated) {
-        base = workspace.home() / ".launcher" / instance.uuid;
-    } else {
-        base = workspace.home().parent_path();
-    }
-    const fs::path gameDir = base / ".minecraft";
-    const fs::path hmclHome = base / ".hmcl";
+    const fs::path gameDir = workspace.resolveMinecraft(instance);
+    const fs::path hmclHome = workspace.resolveHmclHome(instance);
+    const fs::path base = gameDir.parent_path();
     std::error_code ec;
     fs::create_directories(gameDir, ec);
     fs::create_directories(hmclHome, ec);
@@ -76,6 +71,7 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
         "-Dflfhmcl.gameDir=" + gameDir.string(),
         "-Dflf.instance=" + instance.id,
         "-Dflf.mclhr.manifest=" + workspace.manifestPath(instance).string(),
+        "-Dflf.profile=" + workspace.profileDir(instance).string(),
         "-Dflf.home=" + workspace.home().string(),
         "-Dflfhmcl.update.managed=true",
         "-Dhmcl.home=" + hmclHome.string(),

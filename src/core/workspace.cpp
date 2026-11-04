@@ -265,24 +265,26 @@ fs::path Workspace::sharedDir(const char* kind, const Layer& layer) const {
 }
 
 fs::path Workspace::resolveMods(const Instance& instance) const {
-    if (instance.mods.mode == "private") {
-        return instanceDir(instance) / "mods";
+    if (instance.mods.mode == "shared") {
+        return home_ / "mods" / "general";
     }
-    return sharedDir("mods", instance.mods);
+    return home_ / "mods" / (instance.uuid.empty() ? instance.id : instance.uuid);
 }
 
 fs::path Workspace::resolveMinecraft(const Instance& instance) const {
-    if (instance.minecraft.mode == "private") {
-        return instanceDir(instance) / "minecraft";
+    if (instance.isolated) {
+        return home_ / ".launcher" / (instance.uuid.empty() ? instance.id : instance.uuid) / ".minecraft";
     }
-    return sharedDir("minecraft", instance.minecraft);
+    // 默认与 .flfhmcl 同级，共用
+    return home_.parent_path() / ".minecraft";
 }
 
 fs::path Workspace::resolveHmclHome(const Instance& instance) const {
-    if (instance.hmclHome.mode == "private") {
-        return instanceDir(instance) / "hmcl-home";
+    if (instance.isolated) {
+        return home_ / ".launcher" / (instance.uuid.empty() ? instance.id : instance.uuid) / ".hmcl";
     }
-    return sharedDir("hmcl-home", instance.hmclHome);
+    // 默认与 .flfhmcl 同级，共用
+    return home_.parent_path() / ".hmcl";
 }
 
 fs::path Workspace::librariesDir() const {

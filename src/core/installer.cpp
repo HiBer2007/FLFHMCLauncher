@@ -438,7 +438,6 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
     fs::create_directories(Workspace::get().instanceDir(instance), ec);
     fs::create_directories(Workspace::get().resolveMods(instance), ec);
     fs::create_directories(Workspace::get().resolveMinecraft(instance), ec);
-    fs::create_directories(Workspace::get().resolveHmclHome(instance), ec);
 
     progress("准备 Java", 5);
     if (!ensureJava(instance, progress, error)) {

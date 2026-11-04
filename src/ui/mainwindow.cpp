@@ -891,8 +891,6 @@ void MainWindow::finishInstall(const Instance& instance, bool ok, const QString&
     }
     Workspace::get().instances().push_back(instance);
     Workspace::get().saveInstances();
-    std::ofstream(Workspace::get().instanceDir(instance) / "instance.json")
-            << toJson(instance).dump(2);
     refreshInstances();
     setCurrent(instance.uuid);
     showPage(0);
@@ -1318,7 +1316,20 @@ void MainWindow::runInstall(const QString& name, bool isolated, const QString& a
     }
     Workspace::get().instances().push_back(instance);
     Workspace::get().saveInstances();
-    std::ofstream(Workspace::get().instanceDir(instance) / "instance.json") << toJson(instance).dump(2);
+    {
+        std::error_code ec;
+        const fs::path profile = Workspace::get().profileDir(instance);
+        fs::create_directories(profile, ec);
+        std::ofstream(profile / "instance.json") << toJson(instance).dump(2);
+        nlohmann::json launch = {
+            {"instance", instance.uuid},
+            {"gameDir", Workspace::get().resolveMinecraft(instance).string()},
+            {"hmclHome", Workspace::get().resolveHmclHome(instance).string()},
+            {"mods", Workspace::get().resolveMods(instance).string()},
+            {"manifest", Workspace::get().manifestPath(instance).string()},
+        };
+        std::ofstream(profile / "launch.json") << launch.dump(2);
+    }
     progress.setValue(100);
     refreshInstances();
     setCurrent(instance.id);
@@ -1518,7 +1529,7 @@ void MainWindow::checkUpdate() {
 
 void MainWindow::openFolder() {
     Instance* instance = selectedInstance();
-    const auto dir = instance ? Workspace::get().instanceDir(*instance) : Workspace::get().home();
+    const auto dir = instance ? Workspace::get().profileDir(*instance) : Workspace::get().home();
     QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdWString(dir.wstring())));
 }
 
