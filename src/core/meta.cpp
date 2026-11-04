@@ -125,29 +125,60 @@ nlohmann::json fetchFabricProfile(const std::string& gameVersion,
     }
 }
 
+std::vector<std::string> fetchHmclVersions(bool* githubAvailable, std::string* error) {
+    std::vector<std::string> versions;
+    auto add = [&](const std::string& version) {
+        if (!version.empty() && std::find(versions.begin(), versions.end(), version) == versions.end()) {
+            versions.push_back(version);
+        }
+    };
+
+    // 官方下载接口：stable / dev / old 三个最新版本
+    const HttpResult link = httpGet("https://hmcl.huangyuhui.net/api/download_link");
+    if (link.ok) {
+        try {
+            const auto json = nlohmann::json::parse(link.body);
+            for (const char* channel : {"stable", "dev", "old"}) {
+                if (json.contains(channel)) {
+                    add(json[channel].value("version", ""));
+                }
+            }
+        } catch (...) {
+            // 继续尝试 GitHub
+        }
+    }
+
+    // GitHub Releases 提供完整历史；作为补充/兜底
+    bool githubOk = false;
+    const HttpResult releases = httpGet(
+            "https://api.github.com/repos/HMCL-dev/HMCL/releases?per_page=40");
+    if (releases.ok) {
+        try {
+            const auto json = nlohmann::json::parse(releases.body);
+            for (const auto& release : json) {
+                std::string tag = release.value("tag_name", "");
+                if (!tag.empty() && tag.front() == 'v') tag.erase(0, 1);
+                add(tag);
+            }
+            githubOk = true;
+        } catch (...) {
+            // 忽略
+        }
+    }
+    if (githubAvailable) *githubAvailable = githubOk;
+    if (versions.empty() && error) {
+        *error = link.ok ? "没有可用的 HMCL 版本" : link.error;
+    }
+    return versions;
+}
 HmclRelease fetchHmclReleaseFor(const std::string& version, std::string* error) {
     if (version.empty()) {
         return fetchHmclRelease(error);
     }
-    const HttpResult response = httpGet(
-            "https://hmcl.huangyuhui.net/api/update_link?version=" + version + "&channel=stable");
     HmclRelease result;
-    if (!response.ok) {
-        result.error = response.error;
-        if (error) *error = result.error;
-        return result;
-    }
-    try {
-        const auto json = nlohmann::json::parse(response.body);
-        result.jarUrl = jsonString(json, "jar");
-        result.sha1 = jsonString(json, "jarsha1");
-        result.version = jsonString(json, "version", version);
-        result.ok = !result.jarUrl.empty();
-        if (!result.ok) result.error = "HMCL 更新接口缺少 jar";
-    } catch (const std::exception& e) {
-        result.error = std::string("解析 HMCL 版本失败: ") + e.what();
-    }
-    if (!result.ok && error) *error = result.error;
+    result.version = version;
+    result.jarUrl = "https://hmcl.glavo.site/download/HMCL-" + version + ".jar";
+    result.ok = true;
     return result;
 }
 HmclRelease fetchHmclRelease(std::string* error) {

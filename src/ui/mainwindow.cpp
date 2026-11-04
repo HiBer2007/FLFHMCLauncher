@@ -856,13 +856,20 @@ void MainWindow::createInstance() {
             }
             latest = qs(release.version);
         }
+        bool githubAvailable = false;
+        std::string hmclError;
+        const auto hmclVersions = fetchHmclVersions(&githubAvailable, &hmclError);
+        QStringList hmclList;
+        for (const auto& version : hmclVersions) {
+            hmclList.append(qs(version));
+        }
         std::string fabricError;
         const auto loaders = fetchFabricLoaders("1.21.1", &fabricError);
         QStringList fabricVersions;
         for (const auto& loader : loaders) {
             fabricVersions.append(qs(loader));
         }
-        QMetaObject::invokeMethod(this, [this, versions, latest, fabricVersions]() {
+        QMetaObject::invokeMethod(this, [this, versions, latest, fabricVersions, hmclList, githubAvailable]() {
             if (createBusy_) createBusy_->hide();
             if (!createAgent_) return;
             createAgent_->setEnabled(true);
@@ -880,6 +887,16 @@ void MainWindow::createInstance() {
                 createFabric_->addItem("自动（最新）", "");
                 for (const QString& loader : fabricVersions) {
                     createFabric_->addItem("Fabric " + loader, loader);
+                }
+            }
+            if (createHmcl_) {
+                createHmcl_->clear();
+                createHmcl_->addItem("自动使用最新 HMCL", "");
+                for (const QString& version : hmclList) {
+                    createHmcl_->addItem("HMCL " + version, version);
+                }
+                if (!githubAvailable) {
+                    showToast("HMCL 版本列表不完整", "GitHub 不可用，仅显示官方最新版本", false);
                 }
             }
         }, Qt::QueuedConnection);

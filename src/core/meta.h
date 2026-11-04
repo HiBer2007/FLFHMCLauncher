@@ -67,6 +67,7 @@ FlfRelease fetchFlfRelease(const std::string& type, std::string* error,
 
 HmclRelease fetchHmclRelease(std::string* error);
 HmclRelease fetchHmclReleaseFor(const std::string& version, std::string* error);
+std::vector<std::string> fetchHmclVersions(bool* githubAvailable, std::string* error);
 
 std::string javaFxUrl(const std::string& component, const std::string& version);
 
