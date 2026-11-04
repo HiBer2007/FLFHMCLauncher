@@ -125,6 +125,8 @@ private:
     QList<QToolButton*> installStepToggles_;
     QList<QWidget*> installStepBodies_;
     QSet<int> installPinned_;
+    QSet<int> installStarted_;
+    QSet<int> installCompleted_;
     QHash<QString, QProgressBar*> installDetailBars_;
     QHash<QString, QLabel*> installDetailPercents_;
     QProgressBar* installRightBar_ = nullptr;

@@ -625,6 +625,9 @@ void MainWindow::beginInstall() {
 
     installDetailBars_.clear();
     installDetailPercents_.clear();
+    installStarted_.clear();
+    installCompleted_.clear();
+    installPinned_.clear();
     if (installStepsLayout_) {
         while (installStepWidgets_.size() < 7) {
             auto* card = new QFrame(this);
@@ -704,162 +707,148 @@ void MainWindow::beginInstall() {
 
 void MainWindow::updateInstallStep(const QString& step, int percent) {
     if (!installBar_ || !installRightBar_) return;
-    percent = std::max(percent, lastInstallPercent_);
-    lastInstallPercent_ = percent;
-    if (installBar_->maximum() == 0) {
-        installBar_->setRange(0, 100);
-        installRightBar_->setRange(0, 100);
-    }
-    if (!installAnim_) {
-        installAnim_ = new QPropertyAnimation(installBar_, "value", this);
-        installAnim_->setDuration(180);
-    }
-    installAnim_->stop();
-    installAnim_->setStartValue(installBar_->value());
-    installAnim_->setEndValue(percent);
-    installAnim_->start();
-    installRightBar_->setValue(percent);
-    installPercent_->setText(QStringLiteral("%1 %").arg(percent));
-    installTitle_->setText(step);
-
     static const int bounds[] = {0, 5, 10, 30, 62, 75, 92, 100};
-    int active = -1;
-    if (step.startsWith("准备 Java")) active = 0;
-    else if (step.contains("JavaFX")) active = 1;
-    else if (step.startsWith("安装 Fabric") || step.startsWith("Fabric 库")) active = 2;
-    else if (step.contains("HMCL 依赖")) active = 3;
-    else if (step.startsWith("HMCL ")) active = 4;
-    else if (step.contains("Agent") || step.startsWith("FLF API") || step.startsWith("FLFHMCL 依赖")) active = 5;
-    else if (step.contains("写入") || step == "完成") active = 6;
-    if (active < 0) {
-        active = 6;
-        for (int i = 0; i < 6; ++i) {
-            if (percent >= bounds[i] && percent < bounds[i + 1]) {
-                active = i;
-                break;
-            }
+
+    int mapped = -1;
+    if (step.startsWith("准备 Java")) mapped = 0;
+    else if (step.contains("JavaFX")) mapped = 1;
+    else if (step.startsWith("安装 Fabric") || step.startsWith("Fabric 库")) mapped = 2;
+    else if (step.contains("HMCL 依赖")) mapped = 3;
+    else if (step.startsWith("HMCL ")) mapped = 4;
+    else if (step.contains("Agent") || step.startsWith("FLF API") || step.startsWith("FLFHMCL 依赖")) mapped = 5;
+    else if (step.contains("写入") || step == "完成") mapped = 6;
+
+    if (mapped >= 0) {
+        for (int i = 0; i < mapped; ++i) {
+            installStarted_.insert(i);
+            installCompleted_.insert(i);
         }
+        installStarted_.insert(mapped);
+        if (mapped == 6 && percent >= 98) installCompleted_.insert(6);
     }
-    auto setStepBar = [](QProgressBar* bar, int value) {
-        if (value <= 0) {
-            if (bar->maximum() != 0) bar->setRange(0, 0);
-        } else {
-            if (bar->maximum() == 0) bar->setRange(0, 100);
-            bar->setValue(value);
+
+    installTitle_->setText(step);
+    const int span = mapped >= 0 ? std::max(1, bounds[mapped + 1] - bounds[mapped]) : 1;
+    const int activeLocal = mapped >= 0
+            ? qBound(0, (percent - bounds[mapped]) * 100 / span, 100) : 0;
+
+    // 更新详情行
+    if (mapped >= 0 && mapped < installStepDetails_.size()) {
+        QString detailKey = step;
+        int detailPercent = activeLocal;
+        static const QRegularExpression percentPattern("\\s+(\\d+)%$");
+        const auto match = percentPattern.match(detailKey);
+        if (match.hasMatch()) {
+            detailPercent = match.captured(1).toInt();
+            detailKey = detailKey.left(match.capturedStart()).trimmed();
         }
-    };
-    int activeLocal = 0;
-    for (int i = 0; i < installStepBars_.size(); ++i) {
-        if (i < active) {
-            setStepBar(installStepBars_[i], 100);
-            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("100%");
-            QString text = installStepLabels_[i]->text();
-            text.remove(0, 2);
-            installStepLabels_[i]->setText("✓ " + text);
-        } else if (i == active) {
-            const int span = std::max(1, bounds[i + 1] - bounds[i]);
-            const int local = qBound(0, (percent - bounds[i]) * 100 / span, 100);
-            activeLocal = local;
-            setStepBar(installStepBars_[i], local);
-            if (i < installStepPercents_.size()) installStepPercents_[i]->setText(QStringLiteral("%1%").arg(local));
-            QString text = installStepLabels_[i]->text();
-            text.remove(0, 2);
-            installStepLabels_[i]->setText("… " + text);
-            QString detailKey = step;
-            int detailPercent = local;
-            static const QRegularExpression percentPattern("\\s+(\\d+)%$");
-            const auto match = percentPattern.match(detailKey);
-            if (match.hasMatch()) {
-                detailPercent = match.captured(1).toInt();
-                detailKey = detailKey.left(match.capturedStart()).trimmed();
+        const bool detail = detailKey.contains(':') || detailKey.startsWith("JavaFX")
+                || detailKey.startsWith("HMCL ") || detailKey.contains("依赖 ");
+        if (detail) {
+            QProgressBar* detailBar = installDetailBars_.value(detailKey, nullptr);
+            if (detailBar == nullptr) {
+                auto* row = new QWidget(this);
+                auto* rowLayout = new QVBoxLayout(row);
+                rowLayout->setContentsMargins(16, 0, 0, 0);
+                auto* header = new QHBoxLayout();
+                auto* label = new QLabel(detailKey, row);
+                label->setObjectName("hint");
+                auto* percentLabel = new QLabel("pending", row);
+                percentLabel->setObjectName("hint");
+                header->addWidget(label, 1);
+                header->addWidget(percentLabel);
+                rowLayout->addLayout(header);
+                detailBar = new QProgressBar(row);
+                detailBar->setRange(0, 0);
+                detailBar->setTextVisible(false);
+                detailBar->setFixedHeight(5);
+                rowLayout->addWidget(detailBar);
+                installDetailPercents_.insert(detailKey, percentLabel);
+                installStepDetails_[mapped]->addWidget(row);
+                installDetailBars_.insert(detailKey, detailBar);
             }
-            const bool detail = detailKey.contains(':') || detailKey.startsWith("JavaFX")
-                    || detailKey.startsWith("HMCL ") || detailKey.contains("依赖 ");
-            if (detail && i < installStepDetails_.size()) {
-                QProgressBar* detailBar = installDetailBars_.value(detailKey, nullptr);
-                if (detailBar == nullptr) {
-                    auto* row = new QWidget(this);
-                    auto* rowLayout = new QVBoxLayout(row);
-                    rowLayout->setContentsMargins(16, 0, 0, 0);
-                    auto* header = new QHBoxLayout();
-                    auto* label = new QLabel(detailKey, row);
-                    label->setObjectName("hint");
-                    auto* percent = new QLabel("0%", row);
-                    percent->setObjectName("hint");
-                    header->addWidget(label, 1);
-                    header->addWidget(percent);
-                    rowLayout->addLayout(header);
-                    detailBar = new QProgressBar(row);
-                    detailBar->setRange(0, 0);
-                    detailBar->setTextVisible(false);
-                    detailBar->setFixedHeight(5);
-                    rowLayout->addWidget(detailBar);
-                    installDetailPercents_.insert(detailKey, percent);
-                    installStepDetails_[i]->addWidget(row);
-                    installDetailBars_.insert(detailKey, detailBar);
+            if (detailPercent > 0) {
+                if (detailBar->maximum() == 0) detailBar->setRange(0, 100);
+                detailBar->setValue(detailPercent);
+                if (auto* label = installDetailPercents_.value(detailKey, nullptr)) {
+                    label->setText(QStringLiteral("%1%").arg(detailPercent));
                 }
-                if (detailPercent > 0) {
-                    if (detailBar->maximum() == 0) detailBar->setRange(0, 100);
-                    detailBar->setValue(detailPercent);
-                } else if (detailBar->maximum() != 0) {
-                    detailBar->setRange(0, 0);
-                }
-                if (auto* percent = installDetailPercents_.value(detailKey, nullptr)) {
-                    percent->setText(QStringLiteral("%1%").arg(detailPercent));
-                }
+            } else if (installDetailPercents_.value(detailKey, nullptr) != nullptr) {
+                installDetailPercents_.value(detailKey)->setText("pending");
             }
-        } else {
-            installStepBars_[i]->setRange(0, 0);
-            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
-            QString text = installStepLabels_[i]->text();
-            text.remove(0, 2);
-            installStepLabels_[i]->setText("· " + text);
         }
     }
 
-    // 大项进度 = 所有子项平均；总进度 = 所有大项平均
     double overallSum = 0;
+    bool allPending = true;
     for (int i = 0; i < installStepBars_.size(); ++i) {
-        double value = 0;
-        int childCount = 0;
-        double childSum = 0;
-        if (i < installStepDetails_.size()) {
-            QVBoxLayout* details = installStepDetails_[i];
-            for (int j = 0; j < details->count(); ++j) {
-                if (QWidget* row = details->itemAt(j)->widget()) {
-                    if (QProgressBar* bar = row->findChild<QProgressBar*>()) {
-                        if (bar->maximum() > 0) {
-                            childSum += bar->value();
-                            ++childCount;
+        int value = 0;
+        bool pending = false;
+        if (installCompleted_.contains(i)) {
+            value = 100;
+            allPending = false;
+        } else if (installStarted_.contains(i)) {
+            if (i == mapped && activeLocal > 0) {
+                value = activeLocal;
+                allPending = false;
+            }
+            int childCount = 0;
+            double childSum = 0;
+            if (i < installStepDetails_.size()) {
+                QVBoxLayout* details = installStepDetails_[i];
+                for (int j = 0; j < details->count(); ++j) {
+                    if (QWidget* row = details->itemAt(j)->widget()) {
+                        if (QProgressBar* bar = row->findChild<QProgressBar*>()) {
+                            if (bar->maximum() > 0) {
+                                childSum += bar->value();
+                                ++childCount;
+                            }
                         }
                     }
                 }
             }
+            if (childCount > 0) {
+                value = static_cast<int>(childSum / childCount);
+                allPending = false;
+            } else if (value == 0) {
+                pending = true;
+            }
+        } else {
+            pending = true;
         }
-        if (i < active) value = 100;
-        else if (i == active) value = childCount > 0 ? childSum / childCount : activeLocal;
-        if (childCount > 0 && i <= active) value = childSum / childCount;
-        installStepBars_[i]->setRange(0, 100);
-        installStepBars_[i]->setValue(static_cast<int>(value));
-        if (i < installStepPercents_.size()) {
-            installStepPercents_[i]->setText(QStringLiteral("%1%").arg(static_cast<int>(value)));
-        }
-        overallSum += value;
 
-        // 已完成的大项自动折叠，手动展开则保持
-        if (i < installStepBodies_.size()) {
-            const bool completed = i < active;
-            const bool show = !completed || installPinned_.contains(i);
-            installStepBodies_[i]->setVisible(show);
-            if (i < installStepToggles_.size()) {
-                installStepToggles_[i]->setText(show ? "▾" : "▸");
+        if (pending) {
+            if (installStepBars_[i]->maximum() != 0) installStepBars_[i]->setRange(0, 0);
+            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("pending");
+        } else {
+            if (installStepBars_[i]->maximum() == 0) installStepBars_[i]->setRange(0, 100);
+            installStepBars_[i]->setValue(value);
+            if (i < installStepPercents_.size()) {
+                installStepPercents_[i]->setText(QStringLiteral("%1%").arg(value));
             }
         }
+        overallSum += pending ? 0 : value;
     }
+
     const int overall = qBound(0, static_cast<int>(overallSum / std::max<int>(1, installStepBars_.size())), 100);
-    installBar_->setValue(overall);
-    installRightBar_->setValue(overall);
-    installPercent_->setText(QStringLiteral("%1 %").arg(overall));
+    if (allPending) {
+        if (installBar_->maximum() != 0) installBar_->setRange(0, 0);
+        if (installRightBar_->maximum() != 0) installRightBar_->setRange(0, 0);
+        installPercent_->setText("pending");
+    } else {
+        if (installBar_->maximum() == 0) installBar_->setRange(0, 100);
+        if (installRightBar_->maximum() == 0) installRightBar_->setRange(0, 100);
+        installBar_->setValue(overall);
+        installRightBar_->setValue(overall);
+        installPercent_->setText(QStringLiteral("%1 %").arg(overall));
+    }
+
+    for (int i = 0; i < installStepBodies_.size(); ++i) {
+        const bool completed = installCompleted_.contains(i);
+        const bool show = !completed || installPinned_.contains(i);
+        installStepBodies_[i]->setVisible(show);
+        if (i < installStepToggles_.size()) installStepToggles_[i]->setText(show ? "▾" : "▸");
+    }
 }
 void MainWindow::finishInstall(const Instance& instance, bool ok, const QString& error) {
     if (!ok) {
