@@ -115,6 +115,7 @@ bool validateInstanceFiles(const Instance& instance, std::string* error) {
                 const std::string group = library.value("group", "");
                 const std::string artifact = library.value("artifact", "");
                 const std::string version = library.value("version", "");
+                const std::string classifier = library.value("classifier", "");
                 if (group.empty() || artifact.empty() || version.empty()) {
                     return fail("mclhr 清单包含无效库条目");
                 }
@@ -122,7 +123,7 @@ bool validateInstanceFiles(const Instance& instance, std::string* error) {
                         && version != instance.loaderVersion) {
                     return fail("mclhr 清单包含错误的 Fabric Loader 版本");
                 }
-                const std::string key = group + ":" + artifact + ":" + version;
+                const std::string key = group + ":" + artifact + ":" + version + ":" + classifier;
                 if (!seen.insert(key).second) {
                     return fail("mclhr 清单包含重复库: " + key);
                 }
