@@ -650,7 +650,7 @@ void MainWindow::beginInstall() {
             ? ss(createFabric_->currentData().toString()) : "0.19.5";
     instance.hmclVersion = createHmcl_ ? ss(createHmcl_->currentData().toString()) : "";
     instance.isolated = createIsolated_ && createIsolated_->isChecked();
-    instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1";
+    instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1.1";
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
     installDetailBars_.clear();
@@ -1174,7 +1174,7 @@ void MainWindow::startAgentLoad() {
                 if (version.contains('-')) agentPreview_.append(version);
                 else agentStable_.append(version);
             }
-            if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1" : latest);
+            if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1.1" : latest);
             fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
             const int index = createAgent_->findData(latest);
             if (index >= 0) createAgent_->setCurrentIndex(index);

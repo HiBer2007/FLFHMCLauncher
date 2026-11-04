@@ -69,6 +69,8 @@ public:
     void saveInstances();
 
     fs::path instanceDir(const Instance& instance) const;
+    fs::path profileDir(const Instance& instance) const;
+    fs::path manifestPath(const Instance& instance) const;
     fs::path sharedDir(const char* kind, const Layer& layer) const;
     fs::path resolveMods(const Instance& instance) const;
     fs::path resolveMinecraft(const Instance& instance) const;

@@ -167,6 +167,15 @@ void Workspace::initialize() {
                     std::error_code moveEc;
                     fs::rename(legacy, target, moveEc);
                 }
+                // 旧版 mclhr.json 迁移到 .flfhmcl/profile/<uuid>/
+                const fs::path oldManifest = home_ / "instances" / instance.uuid / "mclhr.json";
+                const fs::path newManifest = home_ / "profile" / instance.uuid / "mclhr.json";
+                if (fs::exists(oldManifest) && !fs::exists(newManifest)) {
+                    std::error_code manifestEc;
+                    fs::create_directories(newManifest.parent_path(), manifestEc);
+                    fs::copy_file(oldManifest, newManifest,
+                                  fs::copy_options::overwrite_existing, manifestEc);
+                }
                 instances_.push_back(instance);
             }
             saveInstances();
@@ -238,6 +247,13 @@ void Workspace::saveInstances() {
     writeJson(home_ / "config" / "instances.json", json);
 }
 
+fs::path Workspace::profileDir(const Instance& instance) const {
+    return home_ / "profile" / (instance.uuid.empty() ? instance.id : instance.uuid);
+}
+
+fs::path Workspace::manifestPath(const Instance& instance) const {
+    return profileDir(instance) / "mclhr.json";
+}
 fs::path Workspace::instanceDir(const Instance& instance) const {
     const std::string folder = instance.uuid.empty() ? instance.id : instance.uuid;
     return home_ / "instances" / folder;

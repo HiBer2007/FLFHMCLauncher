@@ -75,6 +75,7 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
         "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
         "-Dflfhmcl.gameDir=" + gameDir.string(),
         "-Dflf.instance=" + instance.id,
+        "-Dflf.mclhr.manifest=" + workspace.manifestPath(instance).string(),
         "-Dflf.home=" + workspace.home().string(),
         "-Dflfhmcl.update.managed=true",
         "-Dhmcl.home=" + hmclHome.string(),
@@ -100,7 +101,7 @@ bool validateInstanceFiles(const Instance& instance, std::string* error) {
     if (!fs::exists(workspace.agentJar(instance))) return fail("FLFHMCL Agent 不存在");
     if (!fs::exists(workspace.hmclJar(instance))) return fail("HMCL jar 不存在");
 
-    const fs::path manifestPath = workspace.instanceDir(instance) / "mclhr.json";
+    const fs::path manifestPath = workspace.manifestPath(instance);
     if (!fs::exists(manifestPath)) return fail("mclhr 清单不存在");
     if (!instance.manifestSha256.empty()
             && sha256File(manifestPath) != instance.manifestSha256) {

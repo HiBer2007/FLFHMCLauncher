@@ -319,15 +319,16 @@ bool writeMclhrManifest(Instance& instance, std::string* error) {
     });
 
     std::error_code ec;
-    fs::create_directories(Workspace::get().instanceDir(instance), ec);
-    std::ofstream out(Workspace::get().instanceDir(instance) / "mclhr.json", std::ios::trunc);
+    fs::create_directories(Workspace::get().profileDir(instance), ec);
+    const fs::path manifestFile = Workspace::get().manifestPath(instance);
+    std::ofstream out(manifestFile, std::ios::trunc);
     out << manifest.dump(2);
     if (!out.good()) {
         if (error) *error = "写入 mclhr.json 失败";
         return false;
     }
     out.close();
-    instance.manifestSha256 = sha256File(Workspace::get().instanceDir(instance) / "mclhr.json");
+    instance.manifestSha256 = sha256File(Workspace::get().manifestPath(instance));
     return true;
 }
 
