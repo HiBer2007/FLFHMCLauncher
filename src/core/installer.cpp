@@ -195,6 +195,20 @@ bool installHmclDependencies(const ProgressFn& progress, std::string* error) {
         progress("HMCL 依赖 " + std::to_string(index) + "/" + std::to_string(total),
                  62 + index * 10 / total);
     }
+
+    // LWJGL 各平台 natives
+    static const char* lwjglArtifacts[] = {"lwjgl", "lwjgl-glfw", "lwjgl-opengl"};
+    for (const char* artifact : lwjglArtifacts) {
+        const fs::path target = Workspace::get().librariesDir()
+                / flatNameFor("org.lwjgl", artifact, "3.3.6", "natives-windows");
+        if (!fs::exists(target)) {
+            const std::string url = "https://repo1.maven.org/maven2/"
+                    + mavenPathFor("org.lwjgl", artifact, "3.3.6", "natives-windows");
+            if (!httpDownload(url, target, nullptr, error)) {
+                return false;
+            }
+        }
+    }
     return true;
 }
 
