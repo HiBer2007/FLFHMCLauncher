@@ -83,6 +83,15 @@ qt_add_executable(FLFHMCLauncher WIN32
     src/main.cpp
 )
 
+qt_add_resources(FLFHMCLauncher "app_resources"
+    PREFIX "/"
+    FILES assets/icon/flfhmlauncher-256.png
+)
+
+if(MSVC)
+    target_sources(FLFHMCLauncher PRIVATE resources/flfhmlauncher.rc)
+endif()
+
 target_link_libraries(FLFHMCLauncher PRIVATE FLFLauncherCore Qt6::Widgets)
 
 # 静态 Qt 需要显式导入平台插件

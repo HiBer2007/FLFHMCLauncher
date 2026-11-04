@@ -4,7 +4,7 @@ FLFHMCL 的原生启动器（C++ / 静态 Qt）。
 
 - 默认非快速启动：打开 GUI，管理实例、安装、更新、模组；
 - 支持为指定实例释放小型快速启动 EXE；
-- 共享库 / 分层隔离（FLF Ichor，参考 Lunar Client 的 ichor 思路）；
+- 共享库 / 分层隔离（mclhr，参考 Lunar Client 的 ichor 思路；<https://github.com/HiBer2007/mclhr>）；
 - 集成日志（CommonLoggerCPP）、崩溃捕获（CrashTrackerHandleLibCPP）、GUI 组件（HiBerGUILibCPP）。
 
 设计、调研与里程碑见 [PLAN.md](PLAN.md)，ichor 调研见 [docs/ICHOR.md](docs/ICHOR.md)。

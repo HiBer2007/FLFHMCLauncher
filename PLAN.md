@@ -29,7 +29,7 @@ ichor 的核心能力（我们从行为上归纳，不复制其实现）：
 3. **类缓存/烘焙（bake）**：把转换后的类缓存到 `cache/<hash>/bake.cache`，加速二次启动；
 4. **模块清单**：模块声明依赖的库和 Mixin 配置，由 pipeline 装配。
 
-FLFHMCLauncher 将实现 **ichor 风格的共享库与模块装配**（下称 "FLF Ichor"）：
+FLFHMCLauncher 将实现 **ichor 风格的共享库与模块装配**，即 **mclhr**（multiver class loader handle runtime，<https://github.com/HiBer2007/mclhr>）：
 共享库仓 + 实例清单 + 自定义 classpath 解析；不依赖、不反编译 Lunar 的私有实现。
 
 ### 1.2 HMCL 的下载 / 更新 / 启动接口
@@ -90,7 +90,7 @@ FLFHMCLauncher.exe (Qt GUI)
 ├─ AppBootstrap       初始化 .flfhmcl、日志、崩溃处理、单实例锁
 ├─ ConfigStore        launcher.json / instances.json / mirrors.json
 ├─ InstanceManager    实例 CRUD、隔离/共享解析
-├─ LibraryStore       FLF Ichor：共享库索引、哈希校验、引用计数
+├─ LibraryStore       mclhr：共享库索引、哈希校验、引用计数
 ├─ DownloadManager    多镜像、断点续传、SHA-1/SHA-256 校验
 ├─ InstallWizard      版本/加载器/Java/JavaFX/HMCL/Agent 安装
 ├─ UpdateManager      HMCL + FLFHMCL + 自身更新
@@ -123,7 +123,7 @@ FLFHMCLauncher.exe
 
 ---
 
-## 四、实例、隔离与共享（FLF Ichor）
+## 四、实例、隔离与共享（mclhr）
 
 ### 4.1 分层
 
@@ -158,7 +158,7 @@ FLFHMCLauncher.exe
 模式：`private` / `shared`（全局）/ `group`（命名组）/ `inherit`（继承另一实例）。
 解析顺序：实例覆盖 → 组 → 全局 → 默认私有。
 
-### 4.3 FLF Ichor 库解析
+### 4.3 mclhr 库解析
 
 库文件采用 Maven 坐标扁平命名（与 Lunar 的 `ichormodule-libs` 一致）：
 
@@ -191,7 +191,7 @@ FLFHMCL agent 读取清单 → 在共享库仓查找 → 校验 → 拼 classpat
     launcher.json          # 全局设置、镜像、Java 偏好
     instances.json         # 实例索引
     mirrors.json           # BMCLAPI / 腾讯 / ghfast 等镜像
-  libraries/               # FLF Ichor 共享库仓
+  libraries/               # mclhr 共享库仓
   java/<vendor>-<version>/ # 共享 Java 运行时
   javafx/<version>/        # 共享 JavaFX
   fabric/<game>/<loader>/  # Fabric profile
@@ -247,7 +247,7 @@ EXE 同目录仅保留：`FLFHMCLauncher.exe`、`FLFQuickStart-*.exe`、`CrashTr
 
 1. **受管更新开关**：`flfhmcl.update.managed=true` 时 mixin 跳过 `UpdateChecker.init()`；
 2. **`--flf-launch <instance>`**：agent 在 `Main` 拦截，读取实例配置并直接调用 HMCL 的启动逻辑；
-3. **FLF Ichor 库解析**：`-Dflf.libraries.dir` + 实例清单 → 组合 classpath；
+3. **mclhr 库解析**：`-Dflf.libraries.dir` + 实例清单 → 组合 classpath；
 4. **实例上下文**：`-Dflf.instance=<id>`，用于选择 `.minecraft` / `.hmcl` 目录；
 5. 与启动器共享 `instance.json` schema（版本、加载器、库坐标、隔离模式）。
 
@@ -280,7 +280,7 @@ cmake --build build --config Release
 | 阶段 | 内容 | 验收 |
 |------|------|------|
 | M0 | 仓库、子模块、CMake 骨架、日志/崩溃接入 | `FLFHMCLauncher.exe` 可启动并写日志 |
-| M1 | `.flfhmcl` 初始化、配置/实例存储、FLF Ichor 库索引 | 单实例配置可保存/加载 |
+| M1 | `.flfhmcl` 初始化、配置/实例存储、mclhr 库索引 | 单实例配置可保存/加载 |
 | M2 | 下载器 + 创建实例向导（版本/加载器/Java/JavaFX/HMCL） | 全新目录可在线装出一个可启动实例 |
 | M3 | 启动装配 + FLFHMCL `--flf-launch`、受管更新 | 双击实例直接进游戏 |
 | M4 | 快速启动 EXE 释放 | 生成的小 EXE 可独立启动指定实例 |
@@ -298,7 +298,7 @@ cmake --build build --config Release
 | WebView2 依赖 DLL | 破坏"单 EXE" | 默认关闭 WebView2 组件，按需启用并随包分发 loader |
 | HMCL 无 CLI 启动实例 | 快速启动无法直接进游戏 | FLFHMCL agent 增加 `--flf-launch` |
 | HMCL 自更新与启动器冲突 | 双更新源 | `flfhmcl.update.managed` 受管模式 |
-| Lunar ichor 为闭源 | 不能直接复用 | 实现等价的共享库 + 模块装配（FLF Ichor） |
+| Lunar ichor 为闭源 | 不能直接复用 | 已开源 mclhr（共享库 + JavaFX 解析），见 mclhr 仓库 |
 | Java/Fabric 元数据变更 | 安装失败 | 版本列表缓存 + 镜像回退 + 明确错误提示 |
 
 ---

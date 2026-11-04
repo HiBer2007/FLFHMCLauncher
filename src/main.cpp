@@ -2,6 +2,7 @@
 #include "core/flf_paths.h"
 
 #include <QApplication>
+#include <QIcon>
 #include <QLabel>
 #include <QMainWindow>
 
@@ -11,6 +12,7 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName("FLFHMCLauncher");
     QApplication::setApplicationVersion("0.1.0");
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/icon/flfhmlauncher-256.png")));
 
     QMainWindow window;
     window.setWindowTitle("FLFHMCLauncher");

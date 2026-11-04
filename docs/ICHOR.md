@@ -21,9 +21,10 @@
 3. 类烘焙缓存：`cache/<hash>/bake.cache`，加速二次启动；
 4. 模块清单驱动装配（依赖库 + Mixin 配置）。
 
-## FLF Ichor（我们的等价实现）
+## mclhr（我们的等价实现，已开源）
 
 - 共享库仓：`.flfhmcl/libraries/`，同上扁平命名；
+- 仓库：<https://github.com/HiBer2007/mclhr>；
 - 实例清单：`instance.json` 保存 Maven 坐标 + SHA-1；
 - FLFHMCL agent 解析清单 → 校验 → 拼 classpath；
 - 分层隔离：Java / JavaFX / Fabric / HMCL / 库 / mods / .minecraft / .hmcl 可分别选择
