@@ -13,6 +13,9 @@ class QPushButton;
 class QCheckBox;
 class QListWidget;
 class QComboBox;
+class QLineEdit;
+class QProgressBar;
+class QListWidget;
 
 namespace HiBerGUI {
 class ToastNotification;
@@ -48,11 +51,16 @@ private:
     QWidget* buildHelpPage();
     QWidget* buildManagePage();
     QWidget* buildModsPage();
+    QWidget* buildCreatePage();
+    QWidget* buildInstallPage();
     QWidget* buildInstanceCard(const Instance& instance);
     void showPage(int index);
     void openManage(const std::string& id);
     void refreshManage();
     void refreshMods();
+    void beginInstall();
+    void updateInstallStep(const QString& step, int percent);
+    void finishInstall(const Instance& instance, bool ok, const QString& error);
     void applyTheme();
     void showToast(const QString& title, const QString& detail, bool error = false);
     void runInstall(const QString& name, bool isolated = false, const QString& agentVersion = {});
@@ -66,6 +74,17 @@ private:
     QWidget* helpPage_ = nullptr;
     QWidget* managePage_ = nullptr;
     QWidget* modsPage_ = nullptr;
+    QWidget* createPage_ = nullptr;
+    QWidget* installPage_ = nullptr;
+    QLineEdit* createName_ = nullptr;
+    QComboBox* createAgent_ = nullptr;
+    QComboBox* createHmcl_ = nullptr;
+    QCheckBox* createIsolated_ = nullptr;
+    QLabel* createError_ = nullptr;
+    QLabel* installTitle_ = nullptr;
+    QLabel* installPercent_ = nullptr;
+    QProgressBar* installBar_ = nullptr;
+    QListWidget* installTasks_ = nullptr;
     QListWidget* instanceList_ = nullptr;
     QListWidget* modsList_ = nullptr;
     QLabel* modsTitle_ = nullptr;

@@ -23,6 +23,7 @@
 #include <QMenu>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QProgressBar>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QScrollArea>
@@ -33,6 +34,7 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <thread>
 #include <fstream>
 
 #ifdef FLF_HAVE_HIBERGUI
@@ -127,11 +129,15 @@ void MainWindow::buildUi() {
     helpPage_ = buildHelpPage();
     managePage_ = buildManagePage();
     modsPage_ = buildModsPage();
+    createPage_ = buildCreatePage();
+    installPage_ = buildInstallPage();
     pages_->addWidget(launchPage_);
     pages_->addWidget(settingsPage_);
     pages_->addWidget(helpPage_);
     pages_->addWidget(managePage_);
     pages_->addWidget(modsPage_);
+    pages_->addWidget(createPage_);
+    pages_->addWidget(installPage_);
     body->addWidget(pages_, 1);
     layout->addLayout(body, 1);
     setCentralWidget(root);
@@ -386,6 +392,193 @@ QWidget* MainWindow::buildHelpPage() {
     return page;
 }
 
+QWidget* MainWindow::buildCreatePage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(28, 22, 28, 22);
+    layout->setSpacing(12);
+
+    auto* title = new QLabel("新建实例", page);
+    title->setObjectName("title");
+    layout->addWidget(title);
+
+    auto* card = new QFrame(page);
+    card->setObjectName("card");
+    auto* form = new QVBoxLayout(card);
+    form->setSpacing(8);
+
+    auto* nameLabel = new QLabel("实例名称", card);
+    form->addWidget(nameLabel);
+    createName_ = new QLineEdit(card);
+    createName_->setText("我的实例");
+    form->addWidget(createName_);
+    createError_ = new QLabel("", card);
+    createError_->setStyleSheet("color: #ef4444;");
+    form->addWidget(createError_);
+
+    auto* hmclLabel = new QLabel("HMCL 版本（自动最新）", card);
+    form->addWidget(hmclLabel);
+    createHmcl_ = new QComboBox(card);
+    createHmcl_->addItem("自动使用最新 HMCL");
+    form->addWidget(createHmcl_);
+
+    auto* agentLabel = new QLabel("FLFHMCL 版本", card);
+    form->addWidget(agentLabel);
+    createAgent_ = new QComboBox(card);
+    form->addWidget(createAgent_);
+
+    createIsolated_ = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", card);
+    form->addWidget(createIsolated_);
+
+    auto* fabric = new QLabel("Fabric：自动安装  ·  Forge / NeoForge：暂不支持", card);
+    fabric->setObjectName("hint");
+    form->addWidget(fabric);
+
+    layout->addWidget(card);
+    layout->addStretch();
+
+    auto* buttons = new QHBoxLayout();
+    auto* back = new QPushButton("返回", page);
+    auto* start = new QPushButton("开始下载", page);
+    start->setObjectName("primary");
+    buttons->addWidget(back);
+    buttons->addStretch();
+    buttons->addWidget(start);
+    layout->addLayout(buttons);
+
+    connect(back, &QPushButton::clicked, this, [this]() { showPage(0); });
+    connect(start, &QPushButton::clicked, this, &MainWindow::beginInstall);
+    return page;
+}
+
+QWidget* MainWindow::buildInstallPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QHBoxLayout(page);
+    layout->setContentsMargins(28, 22, 28, 22);
+    layout->setSpacing(16);
+
+    auto* stats = new QFrame(page);
+    stats->setObjectName("card");
+    stats->setFixedWidth(220);
+    auto* statLayout = new QVBoxLayout(stats);
+    auto* statTitle = new QLabel("安装进度", stats);
+    statTitle->setObjectName("section");
+    statLayout->addWidget(statTitle);
+    installPercent_ = new QLabel("0 %", stats);
+    installPercent_->setStyleSheet("font-size: 26px; font-weight: 700;");
+    statLayout->addWidget(installPercent_);
+    installBar_ = new QProgressBar(stats);
+    installBar_->setRange(0, 100);
+    statLayout->addWidget(installBar_);
+    auto* hint = new QLabel("下载在后台进行，界面不会卡住。", stats);
+    hint->setObjectName("hint");
+    hint->setWordWrap(true);
+    statLayout->addWidget(hint);
+    statLayout->addStretch();
+    layout->addWidget(stats);
+
+    auto* right = new QFrame(page);
+    right->setObjectName("card");
+    auto* rightLayout = new QVBoxLayout(right);
+    installTitle_ = new QLabel("正在准备…", right);
+    installTitle_->setObjectName("section");
+    rightLayout->addWidget(installTitle_);
+    installTasks_ = new QListWidget(right);
+    rightLayout->addWidget(installTasks_, 1);
+    layout->addWidget(right, 1);
+    return page;
+}
+
+void MainWindow::beginInstall() {
+    const QString name = createName_ ? createName_->text().trimmed() : QString();
+    if (name.isEmpty()) {
+        createError_->setText("名称不能为空");
+        return;
+    }
+    for (const auto& instance : Workspace::get().instances()) {
+        if (qs(instance.name) == name) {
+            createError_->setText("不可与现有实例重名");
+            return;
+        }
+    }
+    const QString id = makeId(name);
+    if (fs::exists(Workspace::get().home() / "instances" / ss(id))) {
+        createError_->setText("实例目录已存在，请换一个名称");
+        return;
+    }
+    createError_->clear();
+
+    Instance instance;
+    instance.uuid = newInstanceUuid();
+    instance.id = ss(id);
+    instance.name = ss(name);
+    instance.gameVersion = "1.21.1";
+    instance.loaderVersion = "0.19.5";
+    instance.isolated = createIsolated_ && createIsolated_->isChecked();
+    instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1";
+    instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
+
+    installTasks_->clear();
+    for (const QString& step : {"准备 Java", "下载 JavaFX", "安装 Fabric",
+                                "安装依赖库", "下载 HMCL", "下载 FLFHMCL Agent",
+                                "写入实例配置"}) {
+        installTasks_->addItem("· " + step);
+    }
+    installBar_->setValue(0);
+    installPercent_->setText("0 %");
+    installTitle_->setText("正在准备 " + name);
+    showPage(4);
+
+    std::thread([this, instance]() mutable {
+        std::string error;
+        const bool ok = installInstance(instance, [this](const std::string& step, int percent) {
+            QMetaObject::invokeMethod(this, [this, step = qs(step), percent]() {
+                updateInstallStep(step, percent);
+            }, Qt::QueuedConnection);
+        }, &error);
+        QMetaObject::invokeMethod(this, [this, instance, ok, error = qs(error)]() {
+            finishInstall(instance, ok, error);
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void MainWindow::updateInstallStep(const QString& step, int percent) {
+    if (!installTasks_ || !installBar_) return;
+    installBar_->setValue(percent);
+    installPercent_->setText(QStringLiteral("%1 %").arg(percent));
+    installTitle_->setText(step);
+    int active = 0;
+    if (percent >= 92) active = 6;
+    else if (percent >= 75) active = 5;
+    else if (percent >= 62) active = 4;
+    else if (percent >= 30) active = 3;
+    else if (percent >= 10) active = 2;
+    else if (percent >= 5) active = 1;
+    for (int i = 0; i < installTasks_->count(); ++i) {
+        QString text = installTasks_->item(i)->text();
+        text.remove(0, 2);
+        if (i < active) installTasks_->item(i)->setText("✓ " + text);
+        else if (i == active) installTasks_->item(i)->setText("… " + text);
+        else installTasks_->item(i)->setText("· " + text);
+    }
+}
+
+void MainWindow::finishInstall(const Instance& instance, bool ok, const QString& error) {
+    if (!ok) {
+        showPage(3);
+        if (createError_) createError_->setText(error);
+        showToast("安装失败", error, true);
+        return;
+    }
+    Workspace::get().instances().push_back(instance);
+    Workspace::get().saveInstances();
+    std::ofstream(Workspace::get().instanceDir(instance) / "instance.json")
+            << toJson(instance).dump(2);
+    refreshInstances();
+    setCurrent(instance.uuid);
+    showPage(0);
+    showToast("实例已创建", QStringLiteral("%1 已准备完成").arg(qs(instance.name)), false);
+}
 QWidget* MainWindow::buildManagePage() {
     auto* page = new QWidget(this);
     auto* layout = new QHBoxLayout(page);
@@ -619,73 +812,22 @@ void MainWindow::showToast(const QString& title, const QString& detail, bool err
 }
 
 void MainWindow::createInstance() {
-    QDialog dialog(this);
-    dialog.setWindowTitle("新建实例");
-    dialog.setMinimumWidth(460);
-    auto* layout = new QVBoxLayout(&dialog);
-    layout->setContentsMargins(24, 22, 24, 20);
-    layout->setSpacing(14);
-
-    auto* title = new QLabel("创建实例", &dialog);
-    title->setObjectName("section");
-    layout->addWidget(title);
-    auto* nameEdit = new QLineEdit(&dialog);
-    nameEdit->setPlaceholderText("给实例起个名字");
-    nameEdit->setText("我的实例");
-    nameEdit->selectAll();
-    layout->addWidget(nameEdit);
-
-    QString version = qs(Workspace::get().config().hmclVersion);
-    if (version.isEmpty()) {
-        version = "3.16.4";
-    }
-    auto* versionLabel = new QLabel(QStringLiteral("HMCL %1（自动使用最新版）").arg(version), &dialog);
-    versionLabel->setObjectName("sub");
-    layout->addWidget(versionLabel);
-
-    QComboBox* agentCombo = new QComboBox(&dialog);
-    std::string metadataError;
-    const FlfRelease flf = fetchFlfRelease("flfhmcl", &metadataError);
-    if (flf.ok) {
-        for (const auto& item : flf.versions) {
-            agentCombo->addItem("FLFHMCL " + qs(item.version), qs(item.version));
+    std::string error;
+    const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
+    if (createAgent_) {
+        createAgent_->clear();
+        if (release.ok) {
+            for (const auto& item : release.versions) {
+                createAgent_->addItem("FLFHMCL " + qs(item.version), qs(item.version));
+            }
+            const int latest = createAgent_->findData(qs(release.version));
+            if (latest >= 0) createAgent_->setCurrentIndex(latest);
+        } else {
+            createAgent_->addItem("FLFHMCL 2.1", "2.1");
         }
-        const int latest = agentCombo->findData(qs(flf.version));
-        if (latest >= 0) agentCombo->setCurrentIndex(latest);
-    } else {
-        agentCombo->addItem("FLFHMCL 2.1", "2.1");
     }
-    auto* agentLabel = new QLabel("FLFHMCL 版本", &dialog);
-    layout->addWidget(agentLabel);
-    layout->addWidget(agentCombo);
-    auto* isolated = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", &dialog);
-    layout->addWidget(isolated);
-    auto* hint = new QLabel("不勾选时与 .flfhmcl 同级；勾选后完全独立，便于复制实例。", &dialog);
-    hint->setObjectName("hint");
-    hint->setWordWrap(true);
-    layout->addWidget(hint);
-
-    auto* buttons = new QHBoxLayout();
-    buttons->addStretch();
-    auto* cancel = new QPushButton("取消", &dialog);
-    auto* create = new QPushButton("创建", &dialog);
-    create->setObjectName("primary");
-    buttons->addWidget(cancel);
-    buttons->addWidget(create);
-    layout->addLayout(buttons);
-
-    connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
-    connect(create, &QPushButton::clicked, &dialog, [&]() {
-        if (nameEdit->text().trimmed().isEmpty()) {
-            showToast("名称不能为空", "请先给实例起个名字", true);
-            return;
-        }
-        dialog.accept();
-    });
-    if (dialog.exec() != QDialog::Accepted) return;
-    runInstall(nameEdit->text().trimmed(), isolated->isChecked(), agentCombo->currentData().toString());
+    showPage(3);
 }
-
 void MainWindow::runInstall(const QString& name, bool isolated, const QString& agentVersion) {
     Instance instance;
     instance.uuid = newInstanceUuid();
@@ -827,7 +969,7 @@ void MainWindow::openMods() {
         return;
     }
     refreshMods();
-    showPage(4);
+    showPage(6);
 }
 
 void MainWindow::openManage(const std::string& id) {
@@ -838,7 +980,7 @@ void MainWindow::openManage(const std::string& id) {
         return;
     }
     refreshManage();
-    showPage(3);
+    showPage(5);
 }
 
 void MainWindow::refreshManage() {
