@@ -15,7 +15,7 @@ bool downloadHmcl(const std::function<bool(std::int64_t, std::int64_t)>& progres
                   std::string* error);
 
 /// 确保 Agent jar 存在（从启动器目录/配置路径复制）。
-bool ensureAgent(const std::string& version, std::string* error);
+bool ensureAgent(const std::string& version, const ProgressFn& progress, std::string* error);
 
 /// 创建一个可启动的实例：Java、JavaFX、Fabric、HMCL、Agent、目录与清单。
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error);

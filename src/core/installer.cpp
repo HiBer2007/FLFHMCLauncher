@@ -135,7 +135,10 @@ bool ensureJava(Instance& instance, const ProgressFn& progress, std::string* err
 bool installJavaFx(const Instance& instance, const ProgressFn& progress, std::string* error) {
     const int javaMajor = detectJavaMajor(instance.javaPath);
     const std::string javaFxVersion = javaFxVersionFor(javaMajor);
+    int fxIndex = 0;
     for (const char* component : {"base", "graphics", "controls"}) {
+        ++fxIndex;
+        progress(std::string("下载 JavaFX: javafx-") + component, 10 + fxIndex * 5);
         if (!LibraryTable::instance().ensure(
                 "org.openjfx", std::string("javafx-") + component,
                 javaFxVersion, "win", "https://repo1.maven.org/maven2/", error)) {
@@ -252,7 +255,15 @@ bool installHmcl(Instance& instance, const ProgressFn& progress, std::string* er
     }
     const fs::path target = Workspace::get().hmclJar(instance);
     if (!fs::exists(target) || sha1File(target) != release.sha1) {
-        if (!httpDownload(release.jarUrl, target, nullptr, error)) {
+        if (!httpDownload(release.jarUrl, target,
+                [&](std::int64_t received, std::int64_t total) {
+                    if (total > 0) {
+                        const int local = static_cast<int>(received * 100 / total);
+                        progress("HMCL " + release.version + " 下载 " + std::to_string(local) + "%",
+                                 75 + local * 13 / 100);
+                    }
+                    return true;
+                }, error)) {
             return false;
         }
     }
@@ -325,7 +336,7 @@ bool downloadHmcl(const std::function<bool(std::int64_t, std::int64_t)>& progres
     return httpDownload(release.jarUrl, Workspace::get().hmclJar(), progress, error);
 }
 
-bool ensureAgent(const std::string& version, std::string* error) {
+bool ensureAgent(const std::string& version, const ProgressFn& progress, std::string* error) {
     std::string metadataError;
     const FlfRelease release = fetchFlfRelease("flfhmcl", &metadataError, version);
     if (!release.ok) {
@@ -336,13 +347,21 @@ bool ensureAgent(const std::string& version, std::string* error) {
             / ("FLFHMCL-" + release.version + ".jar");
     if (fs::exists(target)) {
         if (release.sha256.empty() || sha256File(target) == release.sha256) {
+            progress("FLFHMCL Agent 已就绪", 93);
             return true;
         }
     }
     const fs::path temp = target.string() + ".tmp";
-    if (!httpDownload(release.downloadLink, temp, nullptr, error)) {
-        return false;
-    }
+    const bool downloaded = httpDownload(release.downloadLink, temp,
+            [&](std::int64_t received, std::int64_t total) {
+                if (total > 0) {
+                    const int local = static_cast<int>(received * 100 / total);
+                    progress("FLFHMCL Agent 下载 " + std::to_string(local) + "%",
+                             88 + local * 5 / 100);
+                }
+                return true;
+            }, error);
+    if (!downloaded) return false;
     if (!release.sha256.empty() && sha256File(temp) != release.sha256) {
         std::error_code ec;
         fs::remove(temp, ec);
@@ -358,18 +377,26 @@ bool ensureAgent(const std::string& version, std::string* error) {
     }
     return true;
 }
-bool installFlfApi(Instance& instance, std::string* error) {
+
+bool installFlfApi(Instance& instance, const ProgressFn& progress, std::string* error) {
     std::string metadataError;
     const FlfRelease release = fetchFlfRelease("flfapi", &metadataError);
-    if (!release.ok) {
-        return true;
-    }
+    if (!release.ok) return true;
     const std::string fileName = release.downloadLink.substr(release.downloadLink.find_last_of('/') + 1);
     const fs::path target = Workspace::get().resolveMods(instance) / fileName;
     if (fs::exists(target)) {
+        progress("FLF API 已就绪", 95);
         return true;
     }
-    if (!httpDownload(release.downloadLink, target, nullptr, error)) {
+    if (!httpDownload(release.downloadLink, target,
+            [&](std::int64_t received, std::int64_t total) {
+                if (total > 0) {
+                    const int local = static_cast<int>(received * 100 / total);
+                    progress("FLF API 下载 " + std::to_string(local) + "%",
+                             93 + local * 2 / 100);
+                }
+                return true;
+            }, error)) {
         return false;
     }
     if (!release.sha256.empty() && sha256File(target) != release.sha256) {
@@ -381,13 +408,19 @@ bool installFlfApi(Instance& instance, std::string* error) {
     return true;
 }
 
-bool installFlfDependencies(const FlfRelease& release, std::string* error) {
+bool installFlfDependencies(const FlfRelease& release, const ProgressFn& progress, std::string* error) {
+    const int total = std::max<int>(1, static_cast<int>(release.dependencies.size()));
+    int index = 0;
     for (const auto& dependency : release.dependencies) {
         if (!LibraryTable::instance().ensure(dependency.group, dependency.artifact,
                                              dependency.version, dependency.classifier,
                                              "https://repo1.maven.org/maven2/", error)) {
             return false;
         }
+        ++index;
+        progress("FLFHMCL 依赖 " + std::to_string(index) + "/" + std::to_string(total)
+                         + ": " + dependency.group + ":" + dependency.artifact + ":" + dependency.version,
+                 95 + index * 3 / total);
     }
     return true;
 }
@@ -423,20 +456,21 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
         return false;
     }
 
-    if (!ensureAgent(instance.agentVersion, error)) {
+    if (!ensureAgent(instance.agentVersion, progress, error)) {
         return false;
     }
 
-    if (!installFlfApi(instance, error)) {
+    if (!installFlfApi(instance, progress, error)) {
         return false;
     }
 
     std::string flfMetadataError;
     const FlfRelease flfRelease = fetchFlfRelease("flfhmcl", &flfMetadataError);
-    if (flfRelease.ok && !installFlfDependencies(flfRelease, error)) {
+    if (flfRelease.ok && !installFlfDependencies(flfRelease, progress, error)) {
         return false;
     }
 
+    progress("写入实例配置", 98);
     if (!writeMclhrManifest(instance, error)) {
         return false;
     }

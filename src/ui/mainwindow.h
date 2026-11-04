@@ -126,6 +126,7 @@ private:
     QPushButton* installRetry_ = nullptr;
     QPropertyAnimation* installAnim_ = nullptr;
     bool installFailed_ = false;
+    int lastInstallPercent_ = 0;
     QListWidget* instanceList_ = nullptr;
     QListWidget* modsList_ = nullptr;
     QLabel* modsTitle_ = nullptr;

@@ -667,6 +667,7 @@ void MainWindow::beginInstall() {
         }
     }
     installBar_->setRange(0, 0);
+    lastInstallPercent_ = 0;
     installPercent_->setText("准备中…");
     installTitle_->setText("正在准备 " + name);
     showPage(6);
@@ -686,6 +687,8 @@ void MainWindow::beginInstall() {
 
 void MainWindow::updateInstallStep(const QString& step, int percent) {
     if (!installBar_ || !installRightBar_) return;
+    percent = std::max(percent, lastInstallPercent_);
+    lastInstallPercent_ = percent;
     if (installBar_->maximum() == 0) {
         installBar_->setRange(0, 100);
         installRightBar_->setRange(0, 100);
@@ -703,11 +706,21 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
     installTitle_->setText(step);
 
     static const int bounds[] = {0, 5, 10, 30, 62, 75, 92, 100};
-    int active = 6;
-    for (int i = 0; i < 6; ++i) {
-        if (percent >= bounds[i] && percent < bounds[i + 1]) {
-            active = i;
-            break;
+    int active = -1;
+    if (step.startsWith("准备 Java")) active = 0;
+    else if (step.contains("JavaFX")) active = 1;
+    else if (step.startsWith("安装 Fabric") || step.startsWith("Fabric 库")) active = 2;
+    else if (step.contains("HMCL 依赖")) active = 3;
+    else if (step.startsWith("HMCL ")) active = 4;
+    else if (step.contains("Agent") || step.startsWith("FLF API") || step.startsWith("FLFHMCL 依赖")) active = 5;
+    else if (step.contains("写入") || step == "完成") active = 6;
+    if (active < 0) {
+        active = 6;
+        for (int i = 0; i < 6; ++i) {
+            if (percent >= bounds[i] && percent < bounds[i + 1]) {
+                active = i;
+                break;
+            }
         }
     }
     for (int i = 0; i < installStepBars_.size(); ++i) {
