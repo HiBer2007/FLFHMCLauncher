@@ -10,6 +10,7 @@ class QVBoxLayout;
 class QWidget;
 class QPushButton;
 class QCheckBox;
+class QListWidget;
 
 namespace HiBerGUI {
 class ToastNotification;
@@ -22,6 +23,7 @@ class MainWindow : public QMainWindow {
 
 public:
     explicit MainWindow(QWidget* parent = nullptr);
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private slots:
     void refreshInstances();
@@ -42,8 +44,13 @@ private:
     QWidget* buildLaunchPage();
     QWidget* buildSettingsPage();
     QWidget* buildHelpPage();
+    QWidget* buildManagePage();
+    QWidget* buildModsPage();
     QWidget* buildInstanceCard(const Instance& instance);
     void showPage(int index);
+    void openManage(const std::string& id);
+    void refreshManage();
+    void refreshMods();
     void applyTheme();
     void showToast(const QString& title, const QString& detail, bool error = false);
     void runInstall(const QString& name);
@@ -55,6 +62,11 @@ private:
     QWidget* launchPage_ = nullptr;
     QWidget* settingsPage_ = nullptr;
     QWidget* helpPage_ = nullptr;
+    QWidget* managePage_ = nullptr;
+    QWidget* modsPage_ = nullptr;
+    QListWidget* instanceList_ = nullptr;
+    QListWidget* modsList_ = nullptr;
+    QLabel* modsTitle_ = nullptr;
     QLabel* status_ = nullptr;
     QCheckBox* darkToggle_ = nullptr;
     HiBerGUI::ToastNotification* toast_ = nullptr;
