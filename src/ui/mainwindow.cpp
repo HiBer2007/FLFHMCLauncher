@@ -7,56 +7,42 @@
 #include "core/mods.h"
 
 #include <QApplication>
-#include <QCheckBox>
-#include <QComboBox>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
-#include <QDialogButtonBox>
-#include <QDir>
 #include <QFileDialog>
-#include <QFormLayout>
+#include <QFileInfo>
+#include <QFrame>
+#include <QGraphicsOpacityEffect>
 #include <QHBoxLayout>
-#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMenu>
 #include <QMessageBox>
-#include <QPlainTextEdit>
 #include <QProgressDialog>
+#include <QPropertyAnimation>
 #include <QPushButton>
-#include <QStandardPaths>
-#include <QTableWidget>
-#include <QTimer>
-#include <QToolBar>
-#include <QUrl>
+#include <QScrollArea>
+#include <QStackedWidget>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <fstream>
 
+#ifdef FLF_HAVE_HIBERGUI
+#include "toast_notification.h"
+#endif
+
 namespace flf {
 namespace {
 
-QString toQString(const std::string& value) {
+QString qs(const std::string& value) {
     return QString::fromUtf8(value);
 }
 
-std::string toStdString(const QString& value) {
+std::string ss(const QString& value) {
     return value.toUtf8().toStdString();
-}
-
-QString isolationLabel(const Layer& layer) {
-    if (layer.mode == "private") return QStringLiteral("私有");
-    if (layer.mode == "shared") return QStringLiteral("共享");
-    return QStringLiteral("组: ") + toQString(layer.group);
-}
-
-Layer layerFromIndex(int index, const QString& group) {
-    Layer layer;
-    layer.mode = index == 0 ? "private" : index == 1 ? "shared" : "group";
-    layer.group = toStdString(group.isEmpty() ? QStringLiteral("default") : group);
-    return layer;
 }
 
 QString makeId(const QString& name) {
@@ -73,242 +59,363 @@ QString makeId(const QString& name) {
     }
     QString candidate = id;
     int suffix = 2;
-    while (Workspace::get().find(toStdString(candidate)) != nullptr) {
+    while (Workspace::get().find(ss(candidate)) != nullptr) {
         candidate = id + "-" + QString::number(suffix++);
     }
     return candidate;
-}
-
-bool progressDownload(const QString& title,
-                      const std::string& url,
-                      const std::filesystem::path& target,
-                      QString* error) {
-    QProgressDialog dialog(title, QString(), 0, 100);
-    dialog.setWindowModality(Qt::ApplicationModal);
-    dialog.setCancelButton(nullptr);
-    dialog.setMinimumDuration(0);
-    dialog.show();
-
-    const bool ok = httpDownload(url, target, [&](std::int64_t received, std::int64_t total) {
-        if (total > 0) {
-            dialog.setValue(static_cast<int>(received * 100 / total));
-        }
-        QCoreApplication::processEvents();
-        return true;
-    }, nullptr);
-    if (!ok) {
-        *error = QObject::tr("下载失败: %1").arg(QString::fromStdString(url));
-    }
-    return ok;
 }
 
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("FLFHMCLauncher");
-    resize(980, 640);
+    resize(1040, 700);
+    setMinimumSize(860, 560);
 
-    auto* toolbar = addToolBar("main");
-    toolbar->setMovable(false);
+    setStyleSheet(R"(
+        QMainWindow { background: #f5f7fb; }
+        QLabel#heroTitle { font-size: 30px; font-weight: 700; color: #14213d; }
+        QLabel#heroSub { font-size: 14px; color: #64748b; }
+        QLabel#sectionTitle { font-size: 18px; font-weight: 600; color: #1e293b; }
+        QLabel#cardTitle { font-size: 17px; font-weight: 600; color: #0f172a; }
+        QLabel#cardSub { font-size: 12px; color: #64748b; }
+        QFrame#card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; }
+        QFrame#card:hover { border-color: #bcd2f7; }
+        QFrame#card[selected="true"] { border: 2px solid #2f7cf6; }
+        QPushButton#primary {
+            background: #2f7cf6; color: white; border: none; border-radius: 9px;
+            padding: 10px 18px; font-size: 14px; font-weight: 600;
+        }
+        QPushButton#primary:hover { background: #2569d8; }
+        QPushButton#secondary {
+            background: #eef3fb; color: #2456a6; border: none; border-radius: 9px;
+            padding: 9px 14px; font-size: 13px;
+        }
+        QPushButton#secondary:hover { background: #dde8fa; }
+        QPushButton#ghost { background: transparent; color: #64748b; border: none; padding: 6px 8px; }
+        QPushButton#ghost:hover { color: #2f7cf6; }
+        QLabel#step { font-size: 14px; color: #334155; }
+        QLabel#hint { font-size: 12px; color: #94a3b8; }
+    )");
 
-    auto* createAction = toolbar->addAction("新建实例");
-    auto* launchAction = toolbar->addAction("启动");
-    auto* quickAction = toolbar->addAction("快速启动");
-    auto* modsAction = toolbar->addAction("模组");
-    auto* folderAction = toolbar->addAction("打开目录");
-    toolbar->addSeparator();
-    auto* updateAction = toolbar->addAction("检查更新");
-    auto* settingsAction = toolbar->addAction("设置");
-    auto* deleteAction = toolbar->addAction("删除");
-
-    table_ = new QTableWidget(this);
-    table_->setColumnCount(5);
-    table_->setHorizontalHeaderLabels({"名称", "版本", "加载器", "隔离", "Java"});
-    table_->horizontalHeader()->setStretchLastSection(true);
-    table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-    table_->setSelectionMode(QAbstractItemView::SingleSelection);
-    table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    table_->verticalHeader()->setVisible(false);
-
-    log_ = new QPlainTextEdit(this);
-    log_->setReadOnly(true);
-    log_->setMaximumBlockCount(2000);
-
-    status_ = new QLabel(this);
-
-    auto* central = new QWidget(this);
-    auto* layout = new QVBoxLayout(central);
-    layout->addWidget(table_, 3);
-    layout->addWidget(new QLabel("日志", central));
-    layout->addWidget(log_, 1);
-    layout->addWidget(status_);
-    setCentralWidget(central);
-
-    connect(createAction, &QAction::triggered, this, &MainWindow::createInstance);
-    connect(launchAction, &QAction::triggered, this, &MainWindow::launchSelected);
-    connect(quickAction, &QAction::triggered, this, &MainWindow::quickStartSelected);
-    connect(modsAction, &QAction::triggered, this, &MainWindow::openMods);
-    connect(folderAction, &QAction::triggered, this, &MainWindow::openFolder);
-    connect(updateAction, &QAction::triggered, this, &MainWindow::checkUpdate);
-    connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettings);
-    connect(deleteAction, &QAction::triggered, this, &MainWindow::deleteInstance);
-    connect(table_, &QTableWidget::doubleClicked, this, &MainWindow::launchSelected);
-
+    buildUi();
     refreshInstances();
-    log(QStringLiteral("工作区: %1").arg(QString::fromStdWString(Workspace::get().home().wstring())));
 }
 
-void MainWindow::log(const QString& message) {
-    log_->appendPlainText(QStringLiteral("[%1] %2")
-                                  .arg(QDateTime::currentDateTime().toString("HH:mm:ss"), message));
+void MainWindow::buildUi() {
+    pages_ = new QStackedWidget(this);
+    setCentralWidget(pages_);
+
+    welcomePage_ = buildWelcomePage();
+    homePage_ = buildHomePage();
+    pages_->addWidget(welcomePage_);
+    pages_->addWidget(homePage_);
+
+#ifdef FLF_HAVE_HIBERGUI
+    toast_ = new HiBerGUI::ToastNotification(this);
+#endif
+}
+
+QWidget* MainWindow::buildWelcomePage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(64, 56, 64, 56);
+    layout->setSpacing(14);
+
+    auto* title = new QLabel("欢迎使用 FLFHMCLauncher", page);
+    title->setObjectName("heroTitle");
+    auto* sub = new QLabel("三次点击，就能开始游戏。其余交给启动器。", page);
+    sub->setObjectName("heroSub");
+    layout->addWidget(title);
+    layout->addWidget(sub);
+    layout->addSpacing(16);
+
+    const QStringList steps = {
+        "1  给实例起个名字",
+        "2  选择 HMCL 版本（默认最新）",
+        "3  等待准备完成，点击启动",
+    };
+    for (const QString& step : steps) {
+        auto* label = new QLabel(step, page);
+        label->setObjectName("step");
+        layout->addWidget(label);
+    }
+
+    layout->addSpacing(18);
+    auto* start = new QPushButton("开始创建实例", page);
+    start->setObjectName("primary");
+    start->setFixedWidth(180);
+    connect(start, &QPushButton::clicked, this, &MainWindow::createInstance);
+    layout->addWidget(start);
+    layout->addStretch();
+
+    auto* hint = new QLabel("已有实例会自动显示在首页。", page);
+    hint->setObjectName("hint");
+    layout->addWidget(hint);
+    return page;
+}
+
+QWidget* MainWindow::buildHomePage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(32, 26, 32, 26);
+    layout->setSpacing(16);
+
+    auto* header = new QHBoxLayout();
+    homeTitle_ = new QLabel("我的实例", page);
+    homeTitle_->setObjectName("sectionTitle");
+    header->addWidget(homeTitle_);
+    header->addStretch();
+
+    auto* newButton = new QPushButton("新建实例", page);
+    newButton->setObjectName("secondary");
+    connect(newButton, &QPushButton::clicked, this, &MainWindow::createInstance);
+    header->addWidget(newButton);
+
+    auto* settings = new QPushButton("设置", page);
+    settings->setObjectName("ghost");
+    connect(settings, &QPushButton::clicked, this, &MainWindow::openSettings);
+    header->addWidget(settings);
+    layout->addLayout(header);
+
+    auto* scroll = new QScrollArea(page);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: #f5f7fb; border: none; }");
+    auto* content = new QWidget(scroll);
+    content->setStyleSheet("background: #f5f7fb;");
+    cardsLayout_ = new QVBoxLayout(content);
+    cardsLayout_->setContentsMargins(0, 0, 0, 0);
+    cardsLayout_->setSpacing(12);
+    cardsLayout_->addStretch();
+    scroll->setWidget(content);
+    layout->addWidget(scroll, 1);
+
+    status_ = new QLabel(page);
+    status_->setObjectName("hint");
+    layout->addWidget(status_);
+    return page;
+}
+
+QWidget* MainWindow::buildInstanceCard(const Instance& instance) {
+    auto* card = new QFrame(this);
+    card->setObjectName("card");
+    card->setAttribute(Qt::WA_StyledBackground, true);
+    card->setProperty("instanceId", qs(instance.id));
+
+    auto* row = new QHBoxLayout(card);
+    row->setContentsMargins(20, 16, 16, 16);
+    row->setSpacing(14);
+
+    auto* text = new QVBoxLayout();
+    text->setSpacing(4);
+    auto* name = new QLabel(qs(instance.name), card);
+    name->setObjectName("cardTitle");
+    QString hmclVersion = qs(Workspace::get().config().hmclVersion);
+    if (hmclVersion.isEmpty()) {
+        hmclVersion = "3.16.4";
+    }
+    auto* sub = new QLabel(
+            QStringLiteral("HMCL %1  ·  已准备好").arg(hmclVersion),
+            card);
+    sub->setObjectName("cardSub");
+    text->addWidget(name);
+    text->addWidget(sub);
+    row->addLayout(text, 1);
+
+    auto* more = new QPushButton("更多", card);
+    more->setObjectName("ghost");
+    auto* menu = new QMenu(more);
+    menu->addAction("打开实例目录", this, [this, id = instance.id]() {
+        setCurrent(id);
+        openFolder();
+    });
+    menu->addAction("管理模组", this, [this, id = instance.id]() {
+        setCurrent(id);
+        openMods();
+    });
+    menu->addAction("创建快速启动器", this, [this, id = instance.id]() {
+        setCurrent(id);
+        quickStartSelected();
+    });
+    menu->addSeparator();
+    menu->addAction("删除实例", this, [this, id = instance.id]() {
+        setCurrent(id);
+        deleteInstance();
+    });
+    more->setMenu(menu);
+    row->addWidget(more);
+
+    auto* launch = new QPushButton("启动", card);
+    launch->setObjectName("primary");
+    launch->setMinimumWidth(92);
+    launch->setStyleSheet(
+            "QPushButton { background: #2f7cf6; color: white; border: none; border-radius: 9px; padding: 9px 16px; font-weight: 600; }"
+            "QPushButton:hover { background: #2569d8; }");
+    connect(launch, &QPushButton::clicked, this, [this, id = instance.id]() {
+        setCurrent(id);
+        launchSelected();
+    });
+    row->addWidget(launch);
+    return card;
 }
 
 void MainWindow::refreshInstances() {
-    const auto& instances = Workspace::get().instances();
-    table_->setRowCount(static_cast<int>(instances.size()));
-    for (int row = 0; row < static_cast<int>(instances.size()); ++row) {
-        const auto& instance = instances[row];
-        auto* name = new QTableWidgetItem(toQString(instance.name));
-        name->setData(Qt::UserRole, toQString(instance.id));
-        table_->setItem(row, 0, name);
-        table_->setItem(row, 1, new QTableWidgetItem(toQString(instance.gameVersion)));
-        table_->setItem(row, 2, new QTableWidgetItem(
-                toQString(instance.loader + " " + instance.loaderVersion)));
-        table_->setItem(row, 3, new QTableWidgetItem(
-                isolationLabel(instance.mods) + " / " + isolationLabel(instance.minecraft)
-                + " / " + isolationLabel(instance.hmclHome)));
-        table_->setItem(row, 4, new QTableWidgetItem(toQString(instance.javaPath)));
+    if (!cardsLayout_) {
+        return;
     }
-    table_->resizeColumnsToContents();
-    status_->setText(QStringLiteral("共 %1 个实例").arg(instances.size()));
+    while (cardsLayout_->count() > 1) {
+        QLayoutItem* item = cardsLayout_->takeAt(0);
+        if (item->widget()) {
+            item->widget()->deleteLater();
+        }
+        delete item;
+    }
+
+    const auto& instances = Workspace::get().instances();
+    for (const auto& instance : instances) {
+        cardsLayout_->insertWidget(cardsLayout_->count() - 1, buildInstanceCard(instance));
+    }
+
+    if (instances.empty()) {
+        showPage(welcomePage_);
+    } else {
+        showPage(homePage_);
+        status_->setText(QStringLiteral("共 %1 个实例 · 点击启动开始游戏").arg(instances.size()));
+        if (currentId_.empty()) {
+            setCurrent(instances.front().id);
+        }
+    }
+}
+
+void MainWindow::showPage(QWidget* page) {
+    if (pages_->currentWidget() != page) {
+        pages_->setCurrentWidget(page);
+        fadeIn(page);
+    }
+}
+
+void MainWindow::fadeIn(QWidget* widget) {
+    auto* effect = new QGraphicsOpacityEffect(widget);
+    widget->setGraphicsEffect(effect);
+    auto* animation = new QPropertyAnimation(effect, "opacity", widget);
+    animation->setDuration(180);
+    animation->setStartValue(0.0);
+    animation->setEndValue(1.0);
+    animation->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+void MainWindow::setCurrent(const std::string& id) {
+    currentId_ = id;
+    for (QFrame* card : findChildren<QFrame*>("card")) {
+        const bool selected = card->property("instanceId").toString() == qs(id);
+        card->setProperty("selected", selected);
+        card->style()->unpolish(card);
+        card->style()->polish(card);
+    }
 }
 
 Instance* MainWindow::selectedInstance() {
-    const int row = table_->currentRow();
-    if (row < 0) {
+    if (currentId_.empty()) {
         return nullptr;
     }
-    const QString id = table_->item(row, 0)->data(Qt::UserRole).toString();
-    return Workspace::get().find(toStdString(id));
+    return Workspace::get().find(currentId_);
 }
 
-void MainWindow::selectInstance(const std::string& id) {
-    for (int row = 0; row < table_->rowCount(); ++row) {
-        if (table_->item(row, 0)->data(Qt::UserRole).toString() == toQString(id)) {
-            table_->selectRow(row);
-            return;
-        }
+void MainWindow::showToast(const QString& title, const QString& detail, bool error) {
+#ifdef FLF_HAVE_HIBERGUI
+    if (toast_) {
+        toast_->showError(title, detail, error ? 4000 : 2600);
+        return;
+    }
+#endif
+    if (error) {
+        QMessageBox::warning(this, title, detail);
     }
 }
 
 void MainWindow::createInstance() {
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    std::string error;
-    const auto versions = fetchVersionList(&error);
-    QApplication::restoreOverrideCursor();
-    if (versions.empty()) {
-        QMessageBox::critical(this, "获取版本失败", toQString(error));
-        return;
-    }
-
     QDialog dialog(this);
     dialog.setWindowTitle("新建实例");
-    auto* form = new QFormLayout(&dialog);
+    dialog.setMinimumWidth(460);
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->setSpacing(14);
+    layout->setContentsMargins(24, 22, 24, 20);
+
+    auto* title = new QLabel("给新实例起个名字", &dialog);
+    title->setObjectName("sectionTitle");
+    layout->addWidget(title);
 
     auto* nameEdit = new QLineEdit(&dialog);
-    nameEdit->setText("新实例");
-    auto* versionCombo = new QComboBox(&dialog);
-    for (const auto& version : versions) {
-        if (version.type == "release" || version.type == "snapshot") {
-            versionCombo->addItem(toQString(version.id));
+    nameEdit->setPlaceholderText("例如：我的世界");
+    nameEdit->setText("我的实例");
+    nameEdit->selectAll();
+    layout->addWidget(nameEdit);
+
+    std::string error;
+    const HmclRelease release = fetchHmclRelease(&error);
+    const QString hmclVersion = release.ok ? qs(release.version) : "3.16.4";
+
+    auto* version = new QLabel(
+            QStringLiteral("HMCL 版本：%1（自动使用最新版）").arg(hmclVersion), &dialog);
+    version->setObjectName("cardSub");
+    layout->addWidget(version);
+
+    auto* hint = new QLabel("Java、Fabric 和依赖库会自动准备，不需要手动配置。", &dialog);
+    hint->setWordWrap(true);
+    hint->setObjectName("hint");
+    layout->addWidget(hint);
+
+    auto* buttons = new QHBoxLayout();
+    auto* cancel = new QPushButton("取消", &dialog);
+    cancel->setObjectName("secondary");
+    auto* create = new QPushButton("创建并准备", &dialog);
+    create->setObjectName("primary");
+    buttons->addStretch();
+    buttons->addWidget(cancel);
+    buttons->addWidget(create);
+    layout->addLayout(buttons);
+
+    connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(create, &QPushButton::clicked, &dialog, [&]() {
+        if (nameEdit->text().trimmed().isEmpty()) {
+            showToast("名称不能为空", "请先给实例起个名字", true);
+            return;
         }
-    }
-    auto* loaderCombo = new QComboBox(&dialog);
-    auto* javaCombo = new QComboBox(&dialog);
-    javaCombo->addItem("自动（优先本机，缺失时下载 Temurin 21）", QString());
-    for (const auto& java : detectJava()) {
-        javaCombo->addItem(toQString(java.version + "  " + java.path), toQString(java.path));
-    }
-
-    auto* modsMode = new QComboBox(&dialog);
-    auto* mcMode = new QComboBox(&dialog);
-    auto* hmclMode = new QComboBox(&dialog);
-    for (auto* combo : {modsMode, mcMode, hmclMode}) {
-        combo->addItems({"私有", "共享", "组"});
-    }
-    auto* modsGroup = new QLineEdit("default", &dialog);
-    auto* mcGroup = new QLineEdit("default", &dialog);
-    auto* hmclGroup = new QLineEdit("default", &dialog);
-
-    form->addRow("名称", nameEdit);
-    form->addRow("Minecraft 版本", versionCombo);
-    form->addRow("Fabric Loader", loaderCombo);
-    form->addRow("Java", javaCombo);
-    form->addRow("模组隔离", modsMode);
-    form->addRow("模组组名", modsGroup);
-    form->addRow("存档/资源隔离", mcMode);
-    form->addRow("存档组名", mcGroup);
-    form->addRow("HMCL 配置隔离", hmclMode);
-    form->addRow("配置组名", hmclGroup);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    form->addRow(buttons);
-
-    auto updateLoader = [&]() {
-        loaderCombo->clear();
-        std::string fetchError;
-        const auto loaders = fetchFabricLoaders(toStdString(versionCombo->currentText()), &fetchError);
-        for (const auto& loader : loaders) {
-            loaderCombo->addItem(toQString(loader));
-        }
-        if (loaders.empty()) {
-            loaderCombo->addItem("0.16.10");
-        }
-    };
-    connect(versionCombo, &QComboBox::currentTextChanged, &dialog, [&](const QString&) {
-        updateLoader();
+        dialog.accept();
     });
-    updateLoader();
-
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
     if (dialog.exec() != QDialog::Accepted) {
         return;
     }
+    runInstall(nameEdit->text().trimmed());
+}
 
-    const QString name = nameEdit->text().trimmed();
-    if (name.isEmpty() || versionCombo->currentText().isEmpty()) {
-        QMessageBox::warning(this, "参数不完整", "名称和版本不能为空");
-        return;
-    }
-
+void MainWindow::runInstall(const QString& name) {
     Instance instance;
-    instance.id = toStdString(makeId(name));
-    instance.name = toStdString(name);
-    instance.gameVersion = toStdString(versionCombo->currentText());
-    instance.loaderVersion = toStdString(loaderCombo->currentText());
-    instance.javaPath = toStdString(javaCombo->currentData().toString());
-    instance.mods = layerFromIndex(modsMode->currentIndex(), modsGroup->text());
-    instance.minecraft = layerFromIndex(mcMode->currentIndex(), mcGroup->text());
-    instance.hmclHome = layerFromIndex(hmclMode->currentIndex(), hmclGroup->text());
+    instance.id = ss(makeId(name));
+    instance.name = ss(name);
+    instance.gameVersion = "1.21.1";
+    instance.loaderVersion = "0.19.5";
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
-    QProgressDialog progress("安装实例", QString(), 0, 100, this);
+    QProgressDialog progress("正在准备，请稍候…", QString(), 0, 100, this);
+    progress.setWindowTitle("准备实例");
     progress.setWindowModality(Qt::ApplicationModal);
     progress.setCancelButton(nullptr);
     progress.setMinimumDuration(0);
+    progress.setValue(2);
     progress.show();
 
     std::string installError;
-    const bool ok = installInstance(instance, [&](const std::string& step, int percent) {
-        progress.setLabelText(toQString(step));
-        progress.setValue(percent);
+    const bool ok = installInstance(instance, [&](const std::string&, int percent) {
+        progress.setValue(std::max(2, percent));
         QCoreApplication::processEvents();
     }, &installError);
 
     if (!ok) {
-        QMessageBox::critical(this, "安装失败", toQString(installError));
+        progress.close();
+        showToast("准备失败", qs(installError), true);
         return;
     }
 
@@ -317,31 +424,30 @@ void MainWindow::createInstance() {
     std::ofstream(Workspace::get().instanceDir(instance) / "instance.json")
             << toJson(instance).dump(2);
 
+    progress.setValue(100);
     refreshInstances();
-    selectInstance(instance.id);
-    log(QStringLiteral("已创建实例 %1（%2 / Fabric %3）")
-                .arg(toQString(instance.name), toQString(instance.gameVersion),
-                     toQString(instance.loaderVersion)));
+    setCurrent(instance.id);
+    showToast("实例已就绪", QStringLiteral("现在可以点击“启动”开始游戏了"), false);
 }
 
 void MainWindow::launchSelected() {
     Instance* instance = selectedInstance();
     if (!instance) {
-        QMessageBox::information(this, "启动", "请先选择实例");
+        showToast("还没有选择实例", "先点一张实例卡片，再点启动", true);
         return;
     }
     std::string error;
     if (!launchInstance(*instance, &error)) {
-        QMessageBox::critical(this, "启动失败", toQString(error));
+        showToast("启动失败", qs(error), true);
         return;
     }
-    log(QStringLiteral("已启动实例 %1").arg(toQString(instance->name)));
+    showToast("已启动", QStringLiteral("正在打开 %1").arg(qs(instance->name)), false);
 }
 
 void MainWindow::quickStartSelected() {
     Instance* instance = selectedInstance();
     if (!instance) {
-        QMessageBox::information(this, "快速启动", "请先选择实例");
+        showToast("还没有选择实例", "请先选择实例", true);
         return;
     }
     const QString dir = QFileDialog::getExistingDirectory(this, "选择快速启动器输出目录");
@@ -350,27 +456,26 @@ void MainWindow::quickStartSelected() {
     }
     std::string error;
     if (!writeQuickStart(*instance, std::filesystem::path(dir.toStdWString()), &error)) {
-        QMessageBox::critical(this, "生成快速启动器失败", toQString(error));
+        showToast("生成失败", qs(error), true);
         return;
     }
-    log(QStringLiteral("已生成快速启动器: %1").arg(dir));
-    QMessageBox::information(this, "完成",
-                             "已生成 FLFQuickStart.exe 与 quickstart.json，可直接启动该实例。");
+    showToast("快速启动器已生成", "可直接用 FLFQuickStart.exe 启动该实例", false);
 }
 
 void MainWindow::openMods() {
     Instance* instance = selectedInstance();
     if (!instance) {
-        QMessageBox::information(this, "模组", "请先选择实例");
+        showToast("还没有选择实例", "请先选择实例", true);
         return;
     }
 
     QDialog dialog(this);
-    dialog.setWindowTitle("模组管理 - " + toQString(instance->name));
+    dialog.setWindowTitle("模组 - " + qs(instance->name));
+    dialog.resize(560, 420);
     auto* layout = new QVBoxLayout(&dialog);
     auto* list = new QListWidget(&dialog);
     auto* row = new QHBoxLayout();
-    auto* importButton = new QPushButton("导入", &dialog);
+    auto* importButton = new QPushButton("导入模组", &dialog);
     auto* deleteButton = new QPushButton("删除", &dialog);
     auto* closeButton = new QPushButton("关闭", &dialog);
     row->addWidget(importButton);
@@ -383,169 +488,128 @@ void MainWindow::openMods() {
     auto reload = [&]() {
         list->clear();
         for (const auto& mod : listMods(*instance)) {
-            auto* item = new QListWidgetItem(toQString(mod.fileName), list);
+            auto* item = new QListWidgetItem(qs(mod.fileName), list);
             item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
             item->setCheckState(mod.enabled ? Qt::Checked : Qt::Unchecked);
-            item->setData(Qt::UserRole, toQString(mod.path.string()));
-            item->setData(Qt::UserRole + 1, mod.enabled);
+            item->setData(Qt::UserRole, qs(mod.path.string()));
         }
     };
     reload();
 
     connect(list, &QListWidget::itemChanged, &dialog, [&](QListWidgetItem* item) {
-        if (item->data(Qt::UserRole + 1).toBool() == (item->checkState() == Qt::Checked)) {
-            return;
-        }
         const fs::path path = std::filesystem::path(item->data(Qt::UserRole).toString().toStdWString());
         ModEntry entry{path, path.filename().string(), item->checkState() == Qt::Checked};
-        std::string error;
-        if (!setModEnabled(*instance, entry, entry.enabled, &error)) {
-            QMessageBox::warning(&dialog, "操作失败", toQString(error));
-        }
-        reload();
+        std::string modError;
+        setModEnabled(*instance, entry, entry.enabled, &modError);
     });
-
     connect(importButton, &QPushButton::clicked, &dialog, [&]() {
-        const QStringList files = QFileDialog::getOpenFileNames(
-                &dialog, "选择模组", {}, "Fabric 模组 (*.jar)");
-        for (const auto& file : files) {
-            std::string error;
-            if (!importMod(*instance, std::filesystem::path(file.toStdWString()), &error)) {
-                QMessageBox::warning(&dialog, "导入失败", toQString(error));
-            }
+        const QString file = QFileDialog::getOpenFileName(this, "选择模组", {}, "Mods (*.jar)");
+        if (file.isEmpty()) {
+            return;
+        }
+        std::string importError;
+        if (!importMod(*instance, std::filesystem::path(file.toStdWString()), &importError)) {
+            showToast("导入失败", qs(importError), true);
+            return;
         }
         reload();
+        showToast("已导入模组", QFileInfo(file).fileName(), false);
     });
-
     connect(deleteButton, &QPushButton::clicked, &dialog, [&]() {
         auto* item = list->currentItem();
-        if (!item) return;
-        if (QMessageBox::question(&dialog, "删除", "确定删除该模组文件？") != QMessageBox::Yes) return;
-        ModEntry entry{std::filesystem::path(item->data(Qt::UserRole).toString().toStdWString()),
-                       toStdString(item->text()), true};
-        std::string error;
-        if (!deleteMod(entry, &error)) {
-            QMessageBox::warning(&dialog, "删除失败", toQString(error));
+        if (!item) {
+            return;
         }
+        std::string modError;
+        deleteMod(ModEntry{std::filesystem::path(item->data(Qt::UserRole).toString().toStdWString()), "", true}, &modError);
         reload();
     });
-
     connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
-    dialog.resize(560, 420);
     dialog.exec();
 }
 
 void MainWindow::openSettings() {
     QDialog dialog(this);
     dialog.setWindowTitle("设置");
-    auto* form = new QFormLayout(&dialog);
+    dialog.setMinimumWidth(460);
+    auto* layout = new QVBoxLayout(&dialog);
 
-    auto* agentEdit = new QLineEdit(toQString(Workspace::get().config().agentJar), &dialog);
-    agentEdit->setPlaceholderText("留空则使用启动器目录/FLFHMCL-agent.jar");
-    auto* browse = new QPushButton("浏览", &dialog);
-    auto* row = new QHBoxLayout();
-    row->addWidget(agentEdit);
-    row->addWidget(browse);
+    auto* title = new QLabel("基本设置", &dialog);
+    title->setObjectName("sectionTitle");
+    layout->addWidget(title);
 
-    form->addRow("FLFHMCL Agent", row);
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    form->addRow(buttons);
+    auto* path = new QLabel(QStringLiteral("数据目录：%1")
+                                    .arg(QString::fromStdWString(Workspace::get().home().wstring())),
+                            &dialog);
+    path->setWordWrap(true);
+    path->setObjectName("cardSub");
+    layout->addWidget(path);
 
-    connect(browse, &QPushButton::clicked, &dialog, [&]() {
-        const QString file = QFileDialog::getOpenFileName(&dialog, "选择 Agent jar", {},
-                                                          "Java Agent (*.jar)");
-        if (!file.isEmpty()) agentEdit->setText(file);
-    });
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    auto* open = new QPushButton("打开数据目录", &dialog);
+    open->setObjectName("secondary");
+    connect(open, &QPushButton::clicked, this, &MainWindow::openFolder);
+    layout->addWidget(open);
 
-    if (dialog.exec() == QDialog::Accepted) {
-        Workspace::get().config().agentJar = toStdString(agentEdit->text());
-        Workspace::get().saveConfig();
-        log("设置已保存");
-    }
+    auto* check = new QPushButton("检查 HMCL 更新", &dialog);
+    check->setObjectName("secondary");
+    connect(check, &QPushButton::clicked, this, &MainWindow::checkUpdate);
+    layout->addWidget(check);
+
+    auto* advanced = new QLabel(
+            "高级选项（隔离、Java、代理）保留在配置文件中；普通使用不需要修改。", &dialog);
+    advanced->setWordWrap(true);
+    advanced->setObjectName("hint");
+    layout->addWidget(advanced);
+
+    auto* close = new QPushButton("完成", &dialog);
+    close->setObjectName("primary");
+    connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
+    layout->addWidget(close);
+    dialog.exec();
 }
 
 void MainWindow::checkUpdate() {
-    QApplication::setOverrideCursor(Qt::WaitCursor);
     std::string error;
     const HmclRelease release = fetchHmclRelease(&error);
-    QApplication::restoreOverrideCursor();
     if (!release.ok) {
-        QMessageBox::warning(this, "检查更新", toQString(error));
+        showToast("检查更新失败", qs(error), true);
         return;
     }
-
-    const std::string current = Workspace::get().config().hmclVersion;
-    if (!current.empty() && current == release.version) {
-        QMessageBox::information(this, "检查更新", "已经是最新版本: " + toQString(current));
+    if (release.version == Workspace::get().config().hmclVersion) {
+        showToast("已经是最新版本", QStringLiteral("HMCL %1").arg(qs(release.version)), false);
         return;
     }
-
-    if (QMessageBox::question(this, "发现新版本",
-                              QStringLiteral("HMCL %1 可用（当前 %2），是否下载？")
-                                      .arg(toQString(release.version),
-                                           toQString(current.empty() ? "未知" : current)))
-            != QMessageBox::Yes) {
-        return;
-    }
-
-    QProgressDialog progress("下载 HMCL", QString(), 0, 100, this);
-    progress.setWindowModality(Qt::ApplicationModal);
-    progress.setCancelButton(nullptr);
-    progress.show();
-
-    const bool ok = httpDownload(release.jarUrl, Workspace::get().hmclJar(),
-                                 [&](std::int64_t received, std::int64_t total) {
-        if (total > 0) progress.setValue(static_cast<int>(received * 100 / total));
-        QCoreApplication::processEvents();
-        return true;
-    }, &error);
-
-    if (!ok) {
-        QMessageBox::critical(this, "下载失败", toQString(error));
-        return;
-    }
-    if (!release.sha1.empty() && sha1File(Workspace::get().hmclJar()) != release.sha1) {
-        QMessageBox::critical(this, "校验失败", "HMCL jar SHA-1 不匹配");
-        return;
-    }
-
-    Workspace::get().config().hmclVersion = release.version;
-    Workspace::get().saveConfig();
-    log(QStringLiteral("HMCL 已更新到 %1").arg(toQString(release.version)));
+    showToast("发现新版本", QStringLiteral("HMCL %1 可用").arg(qs(release.version)), false);
 }
 
 void MainWindow::openFolder() {
     Instance* instance = selectedInstance();
-    if (!instance) {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(
-                QString::fromStdWString(Workspace::get().home().wstring())));
-        return;
-    }
-    QDesktopServices::openUrl(QUrl::fromLocalFile(
-            QString::fromStdWString(Workspace::get().instanceDir(*instance).wstring())));
+    const auto dir = instance ? Workspace::get().instanceDir(*instance) : Workspace::get().home();
+    QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromStdWString(dir.wstring())));
 }
 
 void MainWindow::deleteInstance() {
     Instance* instance = selectedInstance();
     if (!instance) {
+        showToast("还没有选择实例", "请先选择实例", true);
         return;
     }
     if (QMessageBox::question(this, "删除实例",
-                              QStringLiteral("确定从列表移除“%1”？文件不会删除。")
-                                      .arg(toQString(instance->name)))
+                              QStringLiteral("确定删除“%1”吗？").arg(qs(instance->name)))
             != QMessageBox::Yes) {
         return;
     }
     const std::string id = instance->id;
-    auto& instances = Workspace::get().instances();
-    instances.erase(std::remove_if(instances.begin(), instances.end(),
-                                   [&](const Instance& item) { return item.id == id; }),
-                    instances.end());
+    auto& list = Workspace::get().instances();
+    list.erase(std::remove_if(list.begin(), list.end(),
+                             [&](const Instance& item) { return item.id == id; }),
+               list.end());
     Workspace::get().saveInstances();
+    std::error_code ec;
+    fs::remove_all(Workspace::get().instanceDir(*instance), ec);
+    currentId_.clear();
     refreshInstances();
-    log(QStringLiteral("已移除实例 %1").arg(toQString(id)));
+    showToast("已删除实例", "", false);
 }
 
 } // namespace flf

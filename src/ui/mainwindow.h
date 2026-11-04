@@ -4,9 +4,15 @@
 
 #include <QMainWindow>
 
-class QTableWidget;
-class QPlainTextEdit;
 class QLabel;
+class QStackedWidget;
+class QVBoxLayout;
+class QWidget;
+class QPushButton;
+
+namespace HiBerGUI {
+class ToastNotification;
+}
 
 namespace flf {
 
@@ -29,12 +35,25 @@ private slots:
 
 private:
     Instance* selectedInstance();
-    void log(const QString& message);
-    void selectInstance(const std::string& id);
+    void buildUi();
+    QWidget* buildWelcomePage();
+    QWidget* buildHomePage();
+    QWidget* buildInstanceCard(const Instance& instance);
+    void showPage(QWidget* page);
+    void showToast(const QString& title, const QString& detail, bool error = false);
+    void runInstall(const QString& name);
+    void setCurrent(const std::string& id);
+    void fadeIn(QWidget* widget);
 
-    QTableWidget* table_ = nullptr;
-    QPlainTextEdit* log_ = nullptr;
+    QStackedWidget* pages_ = nullptr;
+    QWidget* welcomePage_ = nullptr;
+    QWidget* homePage_ = nullptr;
+    QVBoxLayout* cardsLayout_ = nullptr;
+    QLabel* homeTitle_ = nullptr;
     QLabel* status_ = nullptr;
+    QPushButton* launchButton_ = nullptr;
+    HiBerGUI::ToastNotification* toast_ = nullptr;
+    std::string currentId_;
 };
 
 } // namespace flf
