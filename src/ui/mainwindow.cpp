@@ -29,6 +29,8 @@
 #include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QPointer>
+#include <QClipboard>
+#include <QApplication>
 #include <QToolButton>
 #include <QPushButton>
 #include <QScrollArea>
@@ -1672,29 +1674,48 @@ void MainWindow::launchSelected() {
                             ? QStringLiteral("未从输出中找到异常行，请查看实例日志。")
                             : details.join("\n");
                     QString cause;
-                    if (text.contains("duplicate fabric loader")) {
+                    QString advice;
+                    if (text.contains("Configuration hasn't been loaded")
+                            && text.contains("AnimationUtils")) {
+                        cause = "HMCL 关闭动画初始化失败";
+                        advice = "这是 FLFHMCL 在 HMCL 关闭阶段提前加载 JavaFX 动画类导致的异常，不是实例文件损坏。建议更新 FLFHMCL；临时可关闭 HMCL 的窗口动画。";
+                    } else if (text.contains("duplicate fabric loader")) {
                         cause = "检测到重复的 Fabric Loader 版本";
+                        advice = "点击“修复实例”会按实例选定的版本重建清单，并清理重复 Loader。";
                     } else if (text.contains("Bootstrap failed")) {
                         cause = "Fabric Loader 引导失败";
+                        advice = "点击“修复实例”可补全 Agent、HMCL、Fabric Loader 并重建配置。";
                     } else if (text.contains("UnsupportedClassVersion")) {
                         cause = "Java 版本不匹配";
+                        advice = "请把实例 Java 切换到更高版本，或更新目标组件。";
                     } else if (text.contains("OutOfMemoryError")) {
                         cause = "内存不足";
+                        advice = "请降低内存分配或关闭其它程序。";
+                    } else if (text.contains("NoClassDefFoundError")) {
+                        cause = "类加载失败";
+                        advice = "可能是组件版本不匹配或库缺失，可尝试修复实例。";
                     } else {
                         cause = "HMCL 异常退出";
+                        advice = "可查看实例日志，或点击“复制诊断”反馈。";
                     }
                     QMessageBox box(this);
                     box.setWindowTitle("HMCL 异常退出");
                     box.setText(cause);
-                    box.setInformativeText(QStringLiteral("退出代码：%1\n\n%2")
-                            .arg(failed && code == 0 ? 1 : code).arg(summary));
+                    box.setInformativeText(QStringLiteral("%1\n\n退出代码：%2\n\n%3")
+                            .arg(advice).arg(failed && code == 0 ? 1 : code).arg(summary));
                     auto* repairButton = box.addButton("修复实例", QMessageBox::AcceptRole);
+                    auto* copyButton = box.addButton("复制诊断", QMessageBox::ActionRole);
                     box.addButton("关闭", QMessageBox::RejectRole);
                     box.exec();
                     if (box.clickedButton() == repairButton) {
                         if (Instance* target = Workspace::get().find(ss(uuid))) {
                             beginRepair(*target);
                         }
+                    } else if (box.clickedButton() == copyButton) {
+                        QApplication::clipboard()->setText(
+                                QStringLiteral("%1\n退出代码：%2\n\n%3")
+                                        .arg(cause).arg(code).arg(text));
+                        showToast("诊断已复制", "可以粘贴到反馈中", false);
                     }
                     showToast("HMCL 异常退出", cause, true);
                 }, Qt::QueuedConnection);
