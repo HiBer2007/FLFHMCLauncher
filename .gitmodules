@@ -1,0 +1,9 @@
+[submodule "third_party/HiBerGUILibCPP"]
+	path = third_party/HiBerGUILibCPP
+	url = git@github.com:HiBer2007/HiBerGUILibCPP.git
+[submodule "third_party/CommonLoggerCPP"]
+	path = third_party/CommonLoggerCPP
+	url = git@github.com:HiBer2007/CommonLoggerCPP.git
+[submodule "third_party/CrashTrackerHandleLibCPP"]
+	path = third_party/CrashTrackerHandleLibCPP
+	url = git@github.com:HiBer2007/CrashTrackerHandleLibCPP.git
