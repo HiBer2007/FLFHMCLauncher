@@ -59,6 +59,8 @@ private:
     void refreshManage();
     void refreshMods();
     void beginInstall();
+    void fillVersionCombo(QComboBox* channel, QComboBox* version,
+                          const QStringList& stable, const QStringList& preview);
     void updateInstallStep(const QString& step, int percent);
     void finishInstall(const Instance& instance, bool ok, const QString& error);
     void applyTheme();
@@ -79,6 +81,9 @@ private:
     QLineEdit* createName_ = nullptr;
     QComboBox* createAgent_ = nullptr;
     QComboBox* createHmcl_ = nullptr;
+    QComboBox* createHmclChannel_ = nullptr;
+    QComboBox* createAgentChannel_ = nullptr;
+    QStringList hmclStable_, hmclPreview_, agentStable_, agentPreview_;
     QComboBox* createFabric_ = nullptr;
     QCheckBox* createIsolated_ = nullptr;
     QLabel* createError_ = nullptr;

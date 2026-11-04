@@ -419,24 +419,34 @@ QWidget* MainWindow::buildCreatePage() {
     createError_->setStyleSheet("color: #ef4444;");
     form->addWidget(createError_);
 
-    auto* hmclLabel = new QLabel("HMCL 版本（自动最新）", card);
-    form->addWidget(hmclLabel);
+    form->addWidget(new QLabel("HMCL 版本", card));
+    auto* hmclRow = new QHBoxLayout();
+    createHmclChannel_ = new QComboBox(card);
+    createHmclChannel_->addItem("稳定版", "stable");
+    createHmclChannel_->addItem("预览版", "preview");
     createHmcl_ = new QComboBox(card);
     createHmcl_->addItem("正在加载 HMCL 版本…");
     createHmcl_->setEnabled(false);
-    form->addWidget(createHmcl_);
+    hmclRow->addWidget(createHmclChannel_, 1);
+    hmclRow->addWidget(createHmcl_, 2);
+    form->addLayout(hmclRow);
     hmclBusy_ = new QProgressBar(card);
     hmclBusy_->setRange(0, 0);
     hmclBusy_->setTextVisible(false);
     hmclBusy_->setFixedHeight(4);
     form->addWidget(hmclBusy_);
 
-    auto* agentLabel = new QLabel("FLFHMCL 版本", card);
-    form->addWidget(agentLabel);
+    form->addWidget(new QLabel("FLFHMCL 版本", card));
+    auto* agentRow = new QHBoxLayout();
+    createAgentChannel_ = new QComboBox(card);
+    createAgentChannel_->addItem("稳定版", "stable");
+    createAgentChannel_->addItem("预览版", "preview");
     createAgent_ = new QComboBox(card);
     createAgent_->addItem("正在加载 FLFHMCL 版本…");
     createAgent_->setEnabled(false);
-    form->addWidget(createAgent_);
+    agentRow->addWidget(createAgentChannel_, 1);
+    agentRow->addWidget(createAgent_, 2);
+    form->addLayout(agentRow);
     agentBusy_ = new QProgressBar(card);
     agentBusy_->setRange(0, 0);
     agentBusy_->setTextVisible(false);
@@ -454,6 +464,13 @@ QWidget* MainWindow::buildCreatePage() {
     fabricBusy_->setTextVisible(false);
     fabricBusy_->setFixedHeight(4);
     form->addWidget(fabricBusy_);
+
+    connect(createHmclChannel_, &QComboBox::currentIndexChanged, this, [this](int) {
+        fillVersionCombo(createHmclChannel_, createHmcl_, hmclStable_, hmclPreview_);
+    });
+    connect(createAgentChannel_, &QComboBox::currentIndexChanged, this, [this](int) {
+        fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
+    });
     createIsolated_ = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", card);
     form->addWidget(createIsolated_);
 
@@ -512,6 +529,22 @@ QWidget* MainWindow::buildInstallPage() {
     return page;
 }
 
+void MainWindow::fillVersionCombo(QComboBox* channel, QComboBox* version,
+                                  const QStringList& stable, const QStringList& preview) {
+    if (!channel || !version) return;
+    const bool usePreview = channel->currentData().toString() == "preview";
+    const QStringList& list = usePreview ? preview : stable;
+    version->clear();
+    for (const QString& item : list) {
+        version->addItem(item, item);
+    }
+    if (list.isEmpty()) {
+        version->addItem("暂无可用版本");
+        version->setEnabled(false);
+    } else {
+        version->setEnabled(true);
+    }
+}
 void MainWindow::beginInstall() {
     const QString name = createName_ ? createName_->text().trimmed() : QString();
     if (name.isEmpty()) {
@@ -866,10 +899,14 @@ void MainWindow::createInstance() {
         QMetaObject::invokeMethod(this, [this, versions, latest]() {
             if (agentBusy_) agentBusy_->hide();
             if (!createAgent_) return;
-            createAgent_->setEnabled(true);
-            createAgent_->clear();
-            for (const QString& version : versions) createAgent_->addItem("FLFHMCL " + version, version);
-            if (versions.isEmpty()) createAgent_->addItem("FLFHMCL 2.1", "2.1");
+            agentStable_.clear();
+            agentPreview_.clear();
+            for (const QString& version : versions) {
+                if (version.contains('-')) agentPreview_.append(version);
+                else agentStable_.append(version);
+            }
+            if (agentStable_.isEmpty()) agentStable_.append(latest.isEmpty() ? "2.1" : latest);
+            fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
             const int index = createAgent_->findData(latest);
             if (index >= 0) createAgent_->setCurrentIndex(index);
         }, Qt::QueuedConnection);
@@ -884,10 +921,14 @@ void MainWindow::createInstance() {
         QMetaObject::invokeMethod(this, [this, list, githubAvailable]() {
             if (hmclBusy_) hmclBusy_->hide();
             if (!createHmcl_) return;
-            createHmcl_->setEnabled(true);
-            createHmcl_->clear();
-            for (const QString& version : list) createHmcl_->addItem("HMCL " + version, version);
-            if (list.isEmpty()) createHmcl_->addItem("HMCL 3.16.4", "3.16.4");
+            hmclStable_.clear();
+            hmclPreview_.clear();
+            for (const QString& version : list) {
+                if (version.count('.') >= 3) hmclPreview_.append(version);
+                else hmclStable_.append(version);
+            }
+            if (hmclStable_.isEmpty() && hmclPreview_.isEmpty()) hmclStable_.append("3.16.4");
+            fillVersionCombo(createHmclChannel_, createHmcl_, hmclStable_, hmclPreview_);
             if (!githubAvailable) {
                 showToast("HMCL 版本列表不完整", "GitHub 不可用，仅显示官方最新版本", false);
             }
