@@ -151,6 +151,47 @@ HmclRelease fetchHmclRelease(std::string* error) {
     return release;
 }
 
+FlfRelease fetchFlfRelease(const std::string& type, std::string* error) {
+    FlfRelease result;
+    const HttpResult response = httpGet(
+            "https://metadata.hibernet.top/api/metadata?type=" + type);
+    if (!response.ok) {
+        result.error = response.error.empty() ? "元数据请求失败" : response.error;
+        if (error) *error = result.error;
+        return result;
+    }
+    try {
+        const auto json = nlohmann::json::parse(response.body);
+        result.version = jsonString(json, "Latest");
+        for (const auto& entry : json.value("List", nlohmann::json::array())) {
+            if (entry.value("version", "") != result.version) {
+                continue;
+            }
+            result.downloadLink = entry.value("download_link", "");
+            result.releasePage = entry.value("release_page", "");
+            result.sha256 = entry.value("sha_256", "");
+            break;
+        }
+        for (const auto& dep : json.value("Dependencies", nlohmann::json::array())) {
+            FlfDependency dependency;
+            dependency.group = dep.value("group", "");
+            dependency.artifact = dep.value("artifact", "");
+            dependency.version = dep.value("version", "");
+            dependency.classifier = dep.value("classifier", "");
+            if (!dependency.group.empty() && !dependency.artifact.empty()) {
+                result.dependencies.push_back(std::move(dependency));
+            }
+        }
+        result.ok = !result.version.empty() && !result.downloadLink.empty();
+        if (!result.ok) {
+            result.error = "元数据缺少 Latest/download_link";
+        }
+    } catch (const std::exception& e) {
+        result.error = std::string("解析元数据失败: ") + e.what();
+    }
+    if (!result.ok && error) *error = result.error;
+    return result;
+}
 std::string javaFxUrl(const std::string& component, const std::string& version) {
     return "https://repo1.maven.org/maven2/org/openjfx/javafx-" + component + "/"
             + version + "/javafx-" + component + "-" + version + "-win.jar";

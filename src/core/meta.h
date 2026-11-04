@@ -37,6 +37,26 @@ nlohmann::json fetchFabricProfile(const std::string& gameVersion,
                                   const std::string& loaderVersion,
                                   std::string* error);
 
+struct FlfDependency {
+    std::string group;
+    std::string artifact;
+    std::string version;
+    std::string classifier;
+};
+
+struct FlfRelease {
+    bool ok = false;
+    std::string version;
+    std::string downloadLink;
+    std::string releasePage;
+    std::string sha256;
+    std::vector<FlfDependency> dependencies;
+    std::string error;
+};
+
+/// 从 metadata.hibernet.top 获取 FLF 组件元数据（flfhmcl / flfapi）。
+FlfRelease fetchFlfRelease(const std::string& type, std::string* error);
+
 HmclRelease fetchHmclRelease(std::string* error);
 
 std::string javaFxUrl(const std::string& component, const std::string& version);

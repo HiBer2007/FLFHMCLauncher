@@ -296,6 +296,20 @@ std::string sha1File(const fs::path& file) {
     return hash.result().toHex().toStdString();
 }
 
+std::string sha256File(const fs::path& file) {
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    std::ifstream in(file, std::ios::binary);
+    if (!in) {
+        return {};
+    }
+    std::vector<char> buffer(64 * 1024);
+    while (in) {
+        in.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
+        hash.addData(buffer.data(), static_cast<int>(in.gcount()));
+    }
+    return hash.result().toHex().toStdString();
+}
+
 std::string readFile(const fs::path& file) {
     std::ifstream in(file, std::ios::binary);
     if (!in) {

@@ -27,6 +27,7 @@ bool httpDownload(const std::string& url,
 
 /// 计算文件 SHA-1（小写十六进制）。
 std::string sha1File(const fs::path& file);
+std::string sha256File(const fs::path& file);
 
 /// 读取小文件为字符串。
 std::string readFile(const fs::path& file);

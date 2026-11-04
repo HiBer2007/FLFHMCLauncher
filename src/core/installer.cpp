@@ -321,6 +321,38 @@ bool downloadHmcl(const std::function<bool(std::int64_t, std::int64_t)>& progres
 
 bool ensureAgent(std::string* error) {
     const fs::path target = Workspace::get().agentJar();
+    const fs::path versionFile = Workspace::get().home() / "agent.version";
+
+    std::string metadataError;
+    const FlfRelease release = fetchFlfRelease("flfhmcl", &metadataError);
+    if (release.ok) {
+        std::string installedVersion;
+        if (fs::exists(versionFile)) {
+            installedVersion = readFile(versionFile);
+        }
+        if (fs::exists(target) && installedVersion == release.version) {
+            return true;
+        }
+        const fs::path temp = target.string() + ".tmp";
+        if (httpDownload(release.downloadLink, temp, nullptr, error)) {
+            if (!release.sha256.empty()) {
+                const std::string actual = sha256File(temp);
+                if (actual != release.sha256) {
+                    std::error_code ec;
+                    fs::remove(temp, ec);
+                    if (error) *error = "FLFHMCL 下载校验失败";
+                    return false;
+                }
+            }
+            std::error_code ec;
+            fs::create_directories(target.parent_path(), ec);
+            fs::rename(temp, target, ec);
+            if (!ec) {
+                std::ofstream(versionFile) << release.version;
+                return true;
+            }
+        }
+    }
 
     if (fs::exists(target)) {
         return true;
@@ -329,8 +361,45 @@ bool ensureAgent(std::string* error) {
     if (fs::exists(local)) {
         return copyFile(local, target, error);
     }
-    if (error) *error = "未找到 FLFHMCL-agent.jar（请放到启动器目录或 hmcl/ 下）";
+    if (error) {
+        *error = "无法获取 FLFHMCL Agent: " + (metadataError.empty() ? "本地文件缺失" : metadataError);
+    }
     return false;
+}
+
+bool installFlfApi(Instance& instance, std::string* error) {
+    std::string metadataError;
+    const FlfRelease release = fetchFlfRelease("flfapi", &metadataError);
+    if (!release.ok) {
+        // 元数据尚未提供 FLF API 时跳过，不阻塞实例安装
+        return true;
+    }
+    const std::string fileName = release.downloadLink.substr(release.downloadLink.find_last_of('/') + 1);
+    const fs::path target = Workspace::get().resolveMods(instance) / fileName;
+    if (fs::exists(target)) {
+        return true;
+    }
+    if (!httpDownload(release.downloadLink, target, nullptr, error)) {
+        return false;
+    }
+    if (!release.sha256.empty() && sha256File(target) != release.sha256) {
+        std::error_code ec;
+        fs::remove(target, ec);
+        if (error) *error = "FLF API 下载校验失败";
+        return false;
+    }
+    return true;
+}
+
+bool installFlfDependencies(const FlfRelease& release, std::string* error) {
+    for (const auto& dependency : release.dependencies) {
+        if (!LibraryTable::instance().ensure(dependency.group, dependency.artifact,
+                                             dependency.version, dependency.classifier,
+                                             "https://repo1.maven.org/maven2/", error)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool installInstance(Instance& instance, const ProgressFn& progress, std::string* error) {
@@ -366,6 +435,16 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
     }
 
     if (!ensureAgent(error)) {
+        return false;
+    }
+
+    if (!installFlfApi(instance, error)) {
+        return false;
+    }
+
+    std::string flfMetadataError;
+    const FlfRelease flfRelease = fetchFlfRelease("flfhmcl", &flfMetadataError);
+    if (flfRelease.ok && !installFlfDependencies(flfRelease, error)) {
         return false;
     }
 
