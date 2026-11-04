@@ -175,6 +175,11 @@ HmclRelease fetchHmclReleaseFor(const std::string& version, std::string* error) 
     if (version.empty()) {
         return fetchHmclRelease(error);
     }
+    // 官方最新版直接走官方 API，避免绕 GitHub/镜像
+    const HmclRelease latest = fetchHmclRelease(nullptr);
+    if (latest.ok && latest.version == version) {
+        return latest;
+    }
     HmclRelease result;
     result.version = version;
     result.jarUrl = "https://hmcl.glavo.site/download/HMCL-" + version + ".jar";

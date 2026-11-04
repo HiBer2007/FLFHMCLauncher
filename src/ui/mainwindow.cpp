@@ -27,6 +27,7 @@
 #include <QProgressDialog>
 #include <QProgressBar>
 #include <QPropertyAnimation>
+#include <QRegularExpression>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
@@ -657,8 +658,7 @@ void MainWindow::beginInstall() {
                                    "写入实例配置"};
         for (int i = 0; i < names.size(); ++i) {
             installStepLabels_[i]->setText("· " + names[i]);
-            installStepBars_[i]->setValue(0);
-            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
+            installStepBars_[i]->setRange(0, 0);
             if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
             while (QLayoutItem* item = installStepDetails_[i]->takeAt(0)) {
                 if (item->widget()) item->widget()->deleteLater();
@@ -723,9 +723,17 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
             }
         }
     }
+    auto setStepBar = [](QProgressBar* bar, int value) {
+        if (value <= 0) {
+            if (bar->maximum() != 0) bar->setRange(0, 0);
+        } else {
+            if (bar->maximum() == 0) bar->setRange(0, 100);
+            bar->setValue(value);
+        }
+    };
     for (int i = 0; i < installStepBars_.size(); ++i) {
         if (i < active) {
-            installStepBars_[i]->setValue(100);
+            setStepBar(installStepBars_[i], 100);
             if (i < installStepPercents_.size()) installStepPercents_[i]->setText("100%");
             QString text = installStepLabels_[i]->text();
             text.remove(0, 2);
@@ -733,21 +741,29 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
         } else if (i == active) {
             const int span = std::max(1, bounds[i + 1] - bounds[i]);
             const int local = qBound(0, (percent - bounds[i]) * 100 / span, 100);
-            installStepBars_[i]->setValue(local);
+            setStepBar(installStepBars_[i], local);
             if (i < installStepPercents_.size()) installStepPercents_[i]->setText(QStringLiteral("%1%").arg(local));
             QString text = installStepLabels_[i]->text();
             text.remove(0, 2);
             installStepLabels_[i]->setText("… " + text);
-            const bool detail = step.contains(':') || step.startsWith("JavaFX")
-                    || step.startsWith("HMCL ");
+            QString detailKey = step;
+            int detailPercent = local;
+            static const QRegularExpression percentPattern("\\s+(\\d+)%$");
+            const auto match = percentPattern.match(detailKey);
+            if (match.hasMatch()) {
+                detailPercent = match.captured(1).toInt();
+                detailKey = detailKey.left(match.capturedStart()).trimmed();
+            }
+            const bool detail = detailKey.contains(':') || detailKey.startsWith("JavaFX")
+                    || detailKey.startsWith("HMCL ") || detailKey.contains("依赖 ");
             if (detail && i < installStepDetails_.size()) {
-                QProgressBar* detailBar = installDetailBars_.value(step, nullptr);
+                QProgressBar* detailBar = installDetailBars_.value(detailKey, nullptr);
                 if (detailBar == nullptr) {
                     auto* row = new QWidget(this);
                     auto* rowLayout = new QVBoxLayout(row);
                     rowLayout->setContentsMargins(16, 0, 0, 0);
                     auto* header = new QHBoxLayout();
-                    auto* label = new QLabel(step, row);
+                    auto* label = new QLabel(detailKey, row);
                     label->setObjectName("hint");
                     auto* percent = new QLabel("0%", row);
                     percent->setObjectName("hint");
@@ -755,22 +771,26 @@ void MainWindow::updateInstallStep(const QString& step, int percent) {
                     header->addWidget(percent);
                     rowLayout->addLayout(header);
                     detailBar = new QProgressBar(row);
-                    detailBar->setRange(0, 100);
+                    detailBar->setRange(0, 0);
                     detailBar->setTextVisible(false);
                     detailBar->setFixedHeight(5);
                     rowLayout->addWidget(detailBar);
-                    installDetailPercents_.insert(step, percent);
+                    installDetailPercents_.insert(detailKey, percent);
                     installStepDetails_[i]->addWidget(row);
-                    installDetailBars_.insert(step, detailBar);
+                    installDetailBars_.insert(detailKey, detailBar);
                 }
-                detailBar->setValue(local);
-                if (auto* percent = installDetailPercents_.value(step, nullptr)) {
-                    percent->setText(QStringLiteral("%1%").arg(local));
+                if (detailPercent > 0) {
+                    if (detailBar->maximum() == 0) detailBar->setRange(0, 100);
+                    detailBar->setValue(detailPercent);
+                } else if (detailBar->maximum() != 0) {
+                    detailBar->setRange(0, 0);
+                }
+                if (auto* percent = installDetailPercents_.value(detailKey, nullptr)) {
+                    percent->setText(QStringLiteral("%1%").arg(detailPercent));
                 }
             }
         } else {
-            installStepBars_[i]->setValue(0);
-            if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
+            installStepBars_[i]->setRange(0, 0);
             if (i < installStepPercents_.size()) installStepPercents_[i]->setText("0%");
             QString text = installStepLabels_[i]->text();
             text.remove(0, 2);

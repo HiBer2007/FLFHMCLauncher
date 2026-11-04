@@ -8,6 +8,9 @@
 #include <cstdlib>
 #include <fstream>
 #include <vector>
+#include <atomic>
+#include <mutex>
+#include <thread>
 
 namespace flf {
 namespace {
@@ -188,6 +191,74 @@ HttpResult httpGet(const std::string& url) {
     return result;
 }
 
+namespace {
+
+bool addRange(HINTERNET request, std::int64_t start, std::int64_t end) {
+    std::wstring header = L"Range: bytes=" + std::to_wstring(start);
+    header += L"-";
+    if (end >= 0) header += std::to_wstring(end);
+    return WinHttpAddRequestHeaders(request, header.c_str(), static_cast<DWORD>(-1),
+                                    WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE) != FALSE;
+}
+
+bool queryContentRange(HINTERNET request, std::int64_t& total) {
+    wchar_t buffer[128]{};
+    DWORD size = sizeof(buffer);
+    if (!WinHttpQueryHeaders(request, WINHTTP_QUERY_CONTENT_RANGE,
+                             WINHTTP_HEADER_NAME_BY_INDEX, buffer, &size,
+                             WINHTTP_NO_HEADER_INDEX)) {
+        return false;
+    }
+    const std::wstring value(buffer);
+    const auto slash = value.find_last_of(L'/');
+    if (slash == std::wstring::npos) return false;
+    total = _wtoi64(value.c_str() + slash + 1);
+    return total > 0;
+}
+
+bool probeRange(const UrlParts& parts, std::int64_t& total) {
+    WinHttpHandle session = openSession();
+    if (!session) return false;
+    WinHttpHandle request = openRequest(session.get(), parts);
+    if (!request || !addRange(request.get(), 0, 0)) return false;
+    if (!WinHttpSendRequest(request.get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
+            || !WinHttpReceiveResponse(request.get(), nullptr)) {
+        return false;
+    }
+    int status = 0;
+    queryStatus(request.get(), status);
+    return status == 206 && queryContentRange(request.get(), total);
+}
+
+bool readBodyToFile(HINTERNET request, std::ofstream& out,
+                    const std::function<bool(std::int64_t)>& onBytes,
+                    std::string* error) {
+    DWORD available = 0;
+    do {
+        available = 0;
+        if (!WinHttpQueryDataAvailable(request, &available)) {
+            if (error) *error = "WinHttpQueryDataAvailable failed";
+            return false;
+        }
+        if (available == 0) break;
+        std::vector<char> buffer(available);
+        DWORD read = 0;
+        if (!WinHttpReadData(request, buffer.data(), available, &read)) {
+            if (error) *error = "WinHttpReadData failed";
+            return false;
+        }
+        out.write(buffer.data(), read);
+        if (onBytes && !onBytes(read)) {
+            if (error) *error = "已取消";
+            return false;
+        }
+    } while (available > 0);
+    return true;
+}
+
+} // namespace
+
 bool httpDownload(const std::string& url,
                   const fs::path& destination,
                   const std::function<bool(std::int64_t, std::int64_t)>& progress,
@@ -197,81 +268,129 @@ bool httpDownload(const std::string& url,
         return false;
     }
     UrlParts parts;
-    if (!crackUrl(url, parts, error)) {
-        return false;
-    }
-
-    WinHttpHandle session = openSession();
-    if (!session) {
-        if (error) *error = "WinHttpOpen failed";
-        return false;
-    }
-    WinHttpHandle request = openRequest(session.get(), parts);
-    if (!request) {
-        if (error) *error = "WinHttpOpenRequest failed";
-        return false;
-    }
-    if (!WinHttpSendRequest(request.get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
-            || !WinHttpReceiveResponse(request.get(), nullptr)) {
-        if (error) *error = "HTTP request failed: " + url;
-        return false;
-    }
-
-    int status = 0;
-    queryStatus(request.get(), status);
-    if (status < 200 || status >= 300) {
-        if (error) *error = "HTTP " + std::to_string(status) + ": " + url;
-        return false;
-    }
+    if (!crackUrl(url, parts, error)) return false;
 
     std::int64_t total = 0;
-    queryContentLength(request.get(), total);
-
+    const bool rangeSupported = probeRange(parts, total);
     std::error_code ec;
     fs::create_directories(destination.parent_path(), ec);
     const fs::path partial = destination.string() + ".part";
-    std::ofstream out(partial, std::ios::binary | std::ios::trunc);
-    if (!out) {
-        if (error) *error = "无法写入: " + partial.string();
-        return false;
-    }
+    std::int64_t existing = fs::exists(partial, ec)
+            ? static_cast<std::int64_t>(fs::file_size(partial, ec)) : 0;
+    if (ec || existing >= total) existing = 0;
 
-    std::int64_t received = 0;
-    DWORD available = 0;
-    bool cancelled = false;
-    do {
-        available = 0;
-        if (!WinHttpQueryDataAvailable(request.get(), &available)) {
-            if (error) *error = "WinHttpQueryDataAvailable failed";
-            out.close();
-            fs::remove(partial, ec);
+    // 分片下载：大于 4MB 且支持 Range，且没有可续传的分片
+    if (rangeSupported && total >= 4 * 1024 * 1024 && existing == 0) {
+        constexpr int kChunks = 4;
+        std::vector<std::thread> workers;
+        std::vector<fs::path> chunkFiles;
+        std::atomic<std::int64_t> received{0};
+        std::atomic<bool> failed{false};
+        std::mutex progressMutex;
+        std::string firstError;
+
+        for (int i = 0; i < kChunks; ++i) {
+            const std::int64_t begin = total * i / kChunks;
+            const std::int64_t end = total * (i + 1) / kChunks - 1;
+            const fs::path chunk = partial.string() + "." + std::to_string(i);
+            chunkFiles.push_back(chunk);
+            workers.emplace_back([&, begin, end, chunk]() {
+                WinHttpHandle session = openSession();
+                WinHttpHandle request = session ? openRequest(session.get(), parts) : WinHttpHandle();
+                if (!request || !addRange(request.get(), begin, end)
+                        || !WinHttpSendRequest(request.get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                                               WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
+                        || !WinHttpReceiveResponse(request.get(), nullptr)) {
+                    failed = true;
+                    return;
+                }
+                int status = 0;
+                queryStatus(request.get(), status);
+                if (status != 206) {
+                    failed = true;
+                    return;
+                }
+                std::ofstream out(chunk, std::ios::binary | std::ios::trunc);
+                if (!out) {
+                    failed = true;
+                    return;
+                }
+                if (!readBodyToFile(request.get(), out, [&](std::int64_t bytes) {
+                        const auto now = received.fetch_add(bytes) + bytes;
+                        if (progress) {
+                            std::lock_guard<std::mutex> lock(progressMutex);
+                            if (!progress(now, total)) return false;
+                        }
+                        return true;
+                    }, &firstError)) {
+                    failed = true;
+                }
+            });
+        }
+        for (auto& worker : workers) worker.join();
+        if (!failed) {
+            std::ofstream combined(partial, std::ios::binary | std::ios::trunc);
+            for (const auto& chunk : chunkFiles) {
+                std::ifstream input(chunk, std::ios::binary);
+                combined << input.rdbuf();
+                input.close();
+                fs::remove(chunk, ec);
+            }
+            combined.close();
+        } else {
+            for (const auto& chunk : chunkFiles) fs::remove(chunk, ec);
+        }
+        if (failed) {
+            if (error) *error = firstError.empty() ? "分片下载失败" : firstError;
             return false;
         }
-        if (available == 0) {
-            break;
-        }
-        std::vector<char> buffer(available);
-        DWORD read = 0;
-        if (!WinHttpReadData(request.get(), buffer.data(), available, &read)) {
-            if (error) *error = "WinHttpReadData failed";
-            out.close();
-            fs::remove(partial, ec);
+    } else {
+        WinHttpHandle session = openSession();
+        if (!session) {
+            if (error) *error = "WinHttpOpen failed";
             return false;
         }
-        out.write(buffer.data(), read);
-        received += read;
-        if (progress && !progress(received, total)) {
-            cancelled = true;
-            break;
+        WinHttpHandle request = openRequest(session.get(), parts);
+        if (!request) {
+            if (error) *error = "WinHttpOpenRequest failed";
+            return false;
         }
-    } while (available > 0);
-
-    out.close();
-    if (cancelled) {
-        fs::remove(partial, ec);
-        if (error) *error = "已取消";
-        return false;
+        const bool resuming = rangeSupported && existing > 0;
+        if (resuming && !addRange(request.get(), existing, -1)) {
+            if (error) *error = "无法设置续传范围";
+            return false;
+        }
+        if (!WinHttpSendRequest(request.get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                                WINHTTP_NO_REQUEST_DATA, 0, 0, 0)
+                || !WinHttpReceiveResponse(request.get(), nullptr)) {
+            if (error) *error = "HTTP request failed: " + url;
+            return false;
+        }
+        int status = 0;
+        queryStatus(request.get(), status);
+        if (status < 200 || status >= 300) {
+            if (error) *error = "HTTP " + std::to_string(status) + ": " + url;
+            return false;
+        }
+        if (!resuming) {
+            queryContentLength(request.get(), total);
+            existing = 0;
+        }
+        std::ofstream out(partial, std::ios::binary | (resuming ? std::ios::app : std::ios::trunc));
+        if (!out) {
+            if (error) *error = "无法写入: " + partial.string();
+            return false;
+        }
+        std::int64_t received = existing;
+        if (!readBodyToFile(request.get(), out, [&](std::int64_t bytes) {
+                received += bytes;
+                return !progress || progress(received, total);
+            }, error)) {
+            out.close();
+            if (error && *error == "已取消") fs::remove(partial, ec);
+            return false;
+        }
+        out.close();
     }
 
     fs::rename(partial, destination, ec);
@@ -283,9 +402,9 @@ bool httpDownload(const std::string& url,
         if (error) *error = "重命名失败: " + ec.message();
         return false;
     }
+    if (progress) progress(total, total);
     return true;
 }
-
 std::string sha1File(const fs::path& file) {
     QCryptographicHash hash(QCryptographicHash::Sha1);
     std::ifstream in(file, std::ios::binary);
