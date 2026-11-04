@@ -1,12 +1,12 @@
 #include "ui/mainwindow.h"
 
-#include "core/http.h"
 #include "core/installer.h"
 #include "core/launcher.h"
 #include "core/meta.h"
 #include "core/mods.h"
 
 #include <QApplication>
+#include <QCheckBox>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDialog>
@@ -24,7 +24,10 @@
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSettings>
 #include <QStackedWidget>
+#include <QStyle>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -36,157 +39,188 @@
 
 namespace flf {
 namespace {
-
-QString qs(const std::string& value) {
-    return QString::fromUtf8(value);
+QSettings uiSettings() {
+    return QSettings(QSettings::IniFormat, QSettings::UserScope, "FLFHMCL", "launcher");
 }
-
-std::string ss(const QString& value) {
-    return value.toUtf8().toStdString();
-}
+QString qs(const std::string& v) { return QString::fromUtf8(v); }
+std::string ss(const QString& v) { return v.toUtf8().toStdString(); }
 
 QString makeId(const QString& name) {
     QString id;
     for (QChar c : name.toLower()) {
-        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
-            id.append(c);
-        } else if (!id.isEmpty() && !id.endsWith('-')) {
-            id.append('-');
-        }
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) id.append(c);
+        else if (!id.isEmpty() && !id.endsWith('-')) id.append('-');
     }
-    if (id.isEmpty()) {
-        id = "instance";
-    }
+    if (id.isEmpty()) id = "instance";
     QString candidate = id;
     int suffix = 2;
-    while (Workspace::get().find(ss(candidate)) != nullptr) {
-        candidate = id + "-" + QString::number(suffix++);
-    }
+    while (Workspace::get().find(ss(candidate)) != nullptr) candidate = id + "-" + QString::number(suffix++);
     return candidate;
 }
-
 } // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("FLFHMCLauncher");
-    resize(1040, 700);
-    setMinimumSize(860, 560);
-
-    setStyleSheet(R"(
-        QMainWindow { background: #f5f7fb; }
-        QLabel#heroTitle { font-size: 30px; font-weight: 700; color: #14213d; }
-        QLabel#heroSub { font-size: 14px; color: #64748b; }
-        QLabel#sectionTitle { font-size: 18px; font-weight: 600; color: #1e293b; }
-        QLabel#cardTitle { font-size: 17px; font-weight: 600; color: #0f172a; }
-        QLabel#cardSub { font-size: 12px; color: #64748b; }
-        QFrame#card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; }
-        QFrame#card:hover { border-color: #bcd2f7; }
-        QFrame#card[selected="true"] { border: 2px solid #2f7cf6; }
-        QPushButton#primary {
-            background: #2f7cf6; color: white; border: none; border-radius: 9px;
-            padding: 10px 18px; font-size: 14px; font-weight: 600;
-        }
-        QPushButton#primary:hover { background: #2569d8; }
-        QPushButton#secondary {
-            background: #eef3fb; color: #2456a6; border: none; border-radius: 9px;
-            padding: 9px 14px; font-size: 13px;
-        }
-        QPushButton#secondary:hover { background: #dde8fa; }
-        QPushButton#ghost { background: transparent; color: #64748b; border: none; padding: 6px 8px; }
-        QPushButton#ghost:hover { color: #2f7cf6; }
-        QLabel#step { font-size: 14px; color: #334155; }
-        QLabel#hint { font-size: 12px; color: #94a3b8; }
-    )");
-
+    resize(1080, 720);
+    setMinimumSize(900, 600);
+    dark_ = uiSettings().value("appearance/dark", false).toBool();
+    applyTheme();
     buildUi();
     refreshInstances();
 }
 
-void MainWindow::buildUi() {
-    pages_ = new QStackedWidget(this);
-    setCentralWidget(pages_);
+void MainWindow::applyTheme() {
+    const QString bg = dark_ ? "#0f141c" : "#f3f7fd";
+    const QString card = dark_ ? "#18202b" : "#ffffff";
+    const QString text = dark_ ? "#e8eef7" : "#101828";
+    const QString sub = dark_ ? "#94a3b8" : "#64748b";
+    const QString border = dark_ ? "#2b3748" : "#dbe6f5";
+    const QString input = dark_ ? "#0d141e" : "#ffffff";
+    const QString hover = dark_ ? "#223046" : "#eaf2ff";
+    const QString qss = QString(R"(
+        QMainWindow, QDialog, QMessageBox, QProgressDialog { background: %1; color: %3; }
+        QWidget { color: %3; font-family: "Microsoft YaHei", "Segoe UI"; font-size: 13px; }
+        QLabel { background: transparent; color: %3; }
+        QLabel#title { font-size: 22px; font-weight: 700; }
+        QLabel#section { font-size: 16px; font-weight: 600; }
+        QLabel#sub, QLabel#hint { color: %4; font-size: 12px; }
+        QFrame#topbar { background: #2f7cf6; }
+        QFrame#sidebar { background: %2; border-right: 1px solid %6; }
+        QFrame#card, QFrame#instanceCard { background: %2; border: 1px solid %6; border-radius: 12px; }
+        QFrame#instanceCard:hover { border-color: #2f7cf6; }
+        QFrame#instanceCard[selected="true"] { border: 2px solid #2f7cf6; }
+        QPushButton { background: %2; color: %3; border: 1px solid %6; border-radius: 8px; padding: 8px 14px; }
+        QPushButton:hover { background: %8; }
+        QPushButton#primary { background: #2f7cf6; color: white; border: none; font-weight: 600; padding: 10px 18px; }
+        QPushButton#primary:hover { background: #2569d8; }
+        QPushButton#nav { background: transparent; color: #eaf1ff; border: none; padding: 8px 14px; font-size: 14px; }
+        QPushButton#nav:hover { background: rgba(255,255,255,0.16); }
+        QPushButton#side { background: transparent; color: %3; border: none; text-align: left; padding: 10px 14px; }
+        QPushButton#side:hover { background: %8; }
+        QLineEdit, QListWidget { background: %7; color: %3; border: 1px solid %6; border-radius: 7px; padding: 7px; }
+        QLineEdit:focus { border-color: #2f7cf6; }
+        QCheckBox { color: %3; spacing: 8px; }
+        QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; border: none; }
+        QMenu { background: %2; color: %3; border: 1px solid %6; }
+        QMenu::item:selected { background: %8; }
+    )").arg(bg, card, text, sub, border, "", input, hover);
+    if (qApp) qApp->setStyleSheet(qss);
+}
 
-    welcomePage_ = buildWelcomePage();
-    homePage_ = buildHomePage();
-    pages_->addWidget(welcomePage_);
-    pages_->addWidget(homePage_);
+void MainWindow::buildUi() {
+    auto* root = new QWidget(this);
+    auto* layout = new QVBoxLayout(root);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(buildTopBar());
+
+    auto* body = new QHBoxLayout();
+    body->setContentsMargins(0, 0, 0, 0);
+    body->setSpacing(0);
+    body->addWidget(buildSidebar());
+
+    pages_ = new QStackedWidget(root);
+    launchPage_ = buildLaunchPage();
+    settingsPage_ = buildSettingsPage();
+    helpPage_ = buildHelpPage();
+    pages_->addWidget(launchPage_);
+    pages_->addWidget(settingsPage_);
+    pages_->addWidget(helpPage_);
+    body->addWidget(pages_, 1);
+    layout->addLayout(body, 1);
+    setCentralWidget(root);
 
 #ifdef FLF_HAVE_HIBERGUI
     toast_ = new HiBerGUI::ToastNotification(this);
 #endif
 }
 
-QWidget* MainWindow::buildWelcomePage() {
-    auto* page = new QWidget(this);
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(64, 56, 64, 56);
-    layout->setSpacing(14);
+QWidget* MainWindow::buildTopBar() {
+    auto* bar = new QFrame(this);
+    bar->setObjectName("topbar");
+    bar->setFixedHeight(52);
+    auto* layout = new QHBoxLayout(bar);
+    layout->setContentsMargins(18, 0, 12, 0);
+    layout->setSpacing(6);
 
-    auto* title = new QLabel("欢迎使用 FLFHMCLauncher", page);
-    title->setObjectName("heroTitle");
-    auto* sub = new QLabel("三次点击，就能开始游戏。其余交给启动器。", page);
-    sub->setObjectName("heroSub");
-    layout->addWidget(title);
-    layout->addWidget(sub);
+    auto* logo = new QLabel("FLFHMCL", bar);
+    logo->setStyleSheet("color: white; font-size: 18px; font-weight: 700;");
+    layout->addWidget(logo);
     layout->addSpacing(16);
 
-    const QStringList steps = {
-        "1  给实例起个名字",
-        "2  选择 HMCL 版本（默认最新）",
-        "3  等待准备完成，点击启动",
+    auto addNav = [&](const QString& text, auto callback) {
+        auto* button = new QPushButton(text, bar);
+        button->setObjectName("nav");
+        connect(button, &QPushButton::clicked, this, callback);
+        layout->addWidget(button);
     };
-    for (const QString& step : steps) {
-        auto* label = new QLabel(step, page);
-        label->setObjectName("step");
-        layout->addWidget(label);
-    }
-
-    layout->addSpacing(18);
-    auto* start = new QPushButton("开始创建实例", page);
-    start->setObjectName("primary");
-    start->setFixedWidth(180);
-    connect(start, &QPushButton::clicked, this, &MainWindow::createInstance);
-    layout->addWidget(start);
+    addNav("启动", [this]() { showPage(0); });
+    addNav("新建", [this]() { createInstance(); });
+    addNav("设置", [this]() { showPage(1); });
+    addNav("帮助", [this]() { showPage(2); });
     layout->addStretch();
 
-    auto* hint = new QLabel("已有实例会自动显示在首页。", page);
-    hint->setObjectName("hint");
-    layout->addWidget(hint);
-    return page;
+    auto* theme = new QPushButton(dark_ ? "浅色" : "深色", bar);
+    theme->setObjectName("nav");
+    connect(theme, &QPushButton::clicked, this, [this, theme]() {
+        dark_ = !dark_;
+        uiSettings().setValue("appearance/dark", dark_);
+        applyTheme();
+        theme->setText(dark_ ? "浅色" : "深色");
+        if (darkToggle_) darkToggle_->setChecked(dark_);
+    });
+    layout->addWidget(theme);
+    return bar;
 }
 
-QWidget* MainWindow::buildHomePage() {
+QWidget* MainWindow::buildSidebar() {
+    auto* side = new QFrame(this);
+    side->setObjectName("sidebar");
+    side->setFixedWidth(190);
+    auto* layout = new QVBoxLayout(side);
+    layout->setContentsMargins(12, 16, 12, 16);
+    layout->setSpacing(4);
+
+    auto add = [&](const QString& text, int page) {
+        auto* button = new QPushButton(text, side);
+        button->setObjectName("side");
+        connect(button, &QPushButton::clicked, this, [this, page]() { showPage(page); });
+        layout->addWidget(button);
+    };
+    add("启动HMCL", 0);
+    add("设置", 1);
+    add("帮助与关于", 2);
+    layout->addStretch();
+    auto* version = new QLabel(QStringLiteral("HMCL %1").arg(qs(Workspace::get().config().hmclVersion).isEmpty() ? QStringLiteral("3.16.4") : qs(Workspace::get().config().hmclVersion)), side);
+    version->setObjectName("hint");
+    layout->addWidget(version);
+    return side;
+}
+
+QWidget* MainWindow::buildLaunchPage() {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(32, 26, 32, 26);
-    layout->setSpacing(16);
+    layout->setContentsMargins(28, 22, 28, 22);
+    layout->setSpacing(12);
 
     auto* header = new QHBoxLayout();
-    homeTitle_ = new QLabel("我的实例", page);
-    homeTitle_->setObjectName("sectionTitle");
-    header->addWidget(homeTitle_);
+    auto* title = new QLabel("启动HMCL", page);
+    title->setObjectName("title");
+    header->addWidget(title);
     header->addStretch();
-
     auto* newButton = new QPushButton("新建实例", page);
-    newButton->setObjectName("secondary");
+    newButton->setObjectName("primary");
     connect(newButton, &QPushButton::clicked, this, &MainWindow::createInstance);
     header->addWidget(newButton);
-
-    auto* settings = new QPushButton("设置", page);
-    settings->setObjectName("ghost");
-    connect(settings, &QPushButton::clicked, this, &MainWindow::openSettings);
-    header->addWidget(settings);
     layout->addLayout(header);
 
     auto* scroll = new QScrollArea(page);
     scroll->setWidgetResizable(true);
     scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: #f5f7fb; border: none; }");
     auto* content = new QWidget(scroll);
-    content->setStyleSheet("background: #f5f7fb;");
     cardsLayout_ = new QVBoxLayout(content);
     cardsLayout_->setContentsMargins(0, 0, 0, 0);
-    cardsLayout_->setSpacing(12);
+    cardsLayout_->setSpacing(10);
     cardsLayout_->addStretch();
     scroll->setWidget(content);
     layout->addWidget(scroll, 1);
@@ -197,101 +231,167 @@ QWidget* MainWindow::buildHomePage() {
     return page;
 }
 
+QWidget* MainWindow::buildSettingsPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(28, 22, 28, 22);
+    layout->setSpacing(12);
+
+    auto* title = new QLabel("设置", page);
+    title->setObjectName("title");
+    layout->addWidget(title);
+
+    auto* appearance = new QFrame(page);
+    appearance->setObjectName("card");
+    auto* a = new QVBoxLayout(appearance);
+    auto* aTitle = new QLabel("外观", appearance);
+    aTitle->setObjectName("section");
+    a->addWidget(aTitle);
+    darkToggle_ = new QCheckBox("深色模式", appearance);
+    darkToggle_->setChecked(dark_);
+    connect(darkToggle_, &QCheckBox::toggled, this, [this](bool on) {
+        dark_ = on;
+        uiSettings().setValue("appearance/dark", dark_);
+        applyTheme();
+    });
+    a->addWidget(darkToggle_);
+    layout->addWidget(appearance);
+
+    auto* data = new QFrame(page);
+    data->setObjectName("card");
+    auto* d = new QVBoxLayout(data);
+    auto* dTitle = new QLabel("数据", data);
+    dTitle->setObjectName("section");
+    d->addWidget(dTitle);
+    auto* path = new QLabel(QStringLiteral("目录：%1").arg(QString::fromStdWString(Workspace::get().home().wstring())), data);
+    path->setObjectName("sub");
+    path->setWordWrap(true);
+    d->addWidget(path);
+    auto* open = new QPushButton("打开数据目录", data);
+    connect(open, &QPushButton::clicked, this, &MainWindow::openFolder);
+    d->addWidget(open, 0, Qt::AlignLeft);
+    layout->addWidget(data);
+
+    auto* update = new QFrame(page);
+    update->setObjectName("card");
+    auto* u = new QVBoxLayout(update);
+    auto* uTitle = new QLabel("更新", update);
+    uTitle->setObjectName("section");
+    u->addWidget(uTitle);
+    auto* check = new QPushButton("检查 HMCL 更新", update);
+    connect(check, &QPushButton::clicked, this, &MainWindow::checkUpdate);
+    u->addWidget(check, 0, Qt::AlignLeft);
+    auto* hint = new QLabel("Java、隔离与代理等高级选项保留在配置文件中。", update);
+    hint->setObjectName("hint");
+    u->addWidget(hint);
+    layout->addWidget(update);
+    layout->addStretch();
+    return page;
+}
+
+QWidget* MainWindow::buildHelpPage() {
+    auto* page = new QWidget(this);
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(28, 22, 28, 22);
+    layout->setSpacing(12);
+
+    auto* title = new QLabel("帮助与关于", page);
+    title->setObjectName("title");
+    layout->addWidget(title);
+
+    auto* card = new QFrame(page);
+    card->setObjectName("card");
+    auto* c = new QVBoxLayout(card);
+    auto* text = new QLabel("面向新手的 FLFHMCL 启动器：选择实例，点击启动即可。\n\n"
+                            "遇到问题可打开数据目录查看日志，或在项目仓库反馈。", card);
+    text->setWordWrap(true);
+    c->addWidget(text);
+    auto* link = new QPushButton("打开项目主页", card);
+    connect(link, &QPushButton::clicked, this, []() {
+        QDesktopServices::openUrl(QUrl("https://github.com/HiBer2007/FLFHMCL"));
+    });
+    c->addWidget(link, 0, Qt::AlignLeft);
+    layout->addWidget(card);
+    layout->addStretch();
+    return page;
+}
+
 QWidget* MainWindow::buildInstanceCard(const Instance& instance) {
     auto* card = new QFrame(this);
-    card->setObjectName("card");
-    card->setAttribute(Qt::WA_StyledBackground, true);
+    card->setObjectName("instanceCard");
     card->setProperty("instanceId", qs(instance.id));
+    card->setAttribute(Qt::WA_StyledBackground, true);
 
     auto* row = new QHBoxLayout(card);
-    row->setContentsMargins(20, 16, 16, 16);
-    row->setSpacing(14);
-
+    row->setContentsMargins(20, 14, 14, 14);
+    row->setSpacing(12);
     auto* text = new QVBoxLayout();
-    text->setSpacing(4);
+    text->setSpacing(3);
     auto* name = new QLabel(qs(instance.name), card);
-    name->setObjectName("cardTitle");
-    QString hmclVersion = qs(Workspace::get().config().hmclVersion);
-    if (hmclVersion.isEmpty()) {
-        hmclVersion = "3.16.4";
-    }
-    auto* sub = new QLabel(
-            QStringLiteral("HMCL %1  ·  已准备好").arg(hmclVersion),
-            card);
-    sub->setObjectName("cardSub");
+    name->setStyleSheet("font-size: 16px; font-weight: 600;");
+    QString version = qs(Workspace::get().config().hmclVersion);
+    if (version.isEmpty()) version = "3.16.4";
+    auto* sub = new QLabel(QStringLiteral("HMCL %1  ·  已准备好").arg(version), card);
+    sub->setObjectName("sub");
     text->addWidget(name);
     text->addWidget(sub);
     row->addLayout(text, 1);
 
     auto* more = new QPushButton("更多", card);
-    more->setObjectName("ghost");
+    more->setObjectName("side");
     auto* menu = new QMenu(more);
-    menu->addAction("打开实例目录", this, [this, id = instance.id]() {
-        setCurrent(id);
-        openFolder();
-    });
-    menu->addAction("管理模组", this, [this, id = instance.id]() {
-        setCurrent(id);
-        openMods();
-    });
-    menu->addAction("创建快速启动器", this, [this, id = instance.id]() {
-        setCurrent(id);
-        quickStartSelected();
-    });
+    menu->addAction("打开实例目录", this, [this, id = instance.id]() { setCurrent(id); openFolder(); });
+    menu->addAction("管理模组", this, [this, id = instance.id]() { setCurrent(id); openMods(); });
+    menu->addAction("创建快速启动器", this, [this, id = instance.id]() { setCurrent(id); quickStartSelected(); });
     menu->addSeparator();
-    menu->addAction("删除实例", this, [this, id = instance.id]() {
-        setCurrent(id);
-        deleteInstance();
-    });
+    menu->addAction("删除实例", this, [this, id = instance.id]() { setCurrent(id); deleteInstance(); });
     more->setMenu(menu);
     row->addWidget(more);
 
     auto* launch = new QPushButton("启动", card);
     launch->setObjectName("primary");
-    launch->setMinimumWidth(92);
-    launch->setStyleSheet(
-            "QPushButton { background: #2f7cf6; color: white; border: none; border-radius: 9px; padding: 9px 16px; font-weight: 600; }"
-            "QPushButton:hover { background: #2569d8; }");
-    connect(launch, &QPushButton::clicked, this, [this, id = instance.id]() {
-        setCurrent(id);
-        launchSelected();
-    });
+    launch->setMinimumWidth(88);
+    connect(launch, &QPushButton::clicked, this, [this, id = instance.id]() { setCurrent(id); launchSelected(); });
     row->addWidget(launch);
     return card;
 }
 
 void MainWindow::refreshInstances() {
-    if (!cardsLayout_) {
-        return;
-    }
+    if (!cardsLayout_) return;
     while (cardsLayout_->count() > 1) {
         QLayoutItem* item = cardsLayout_->takeAt(0);
-        if (item->widget()) {
-            item->widget()->deleteLater();
-        }
+        if (item->widget()) item->widget()->deleteLater();
         delete item;
     }
-
     const auto& instances = Workspace::get().instances();
+    if (instances.empty()) {
+        auto* empty = new QFrame(this);
+        empty->setObjectName("card");
+        auto* layout = new QVBoxLayout(empty);
+        auto* text = new QLabel("还没有实例\n点击右上角“新建实例”，三步就能开始游戏。", empty);
+        text->setAlignment(Qt::AlignCenter);
+        text->setObjectName("sub");
+        layout->addWidget(text);
+        auto* button = new QPushButton("新建实例", empty);
+        button->setObjectName("primary");
+        connect(button, &QPushButton::clicked, this, &MainWindow::createInstance);
+        layout->addWidget(button, 0, Qt::AlignCenter);
+        cardsLayout_->insertWidget(0, empty);
+        status_->setText("准备就绪");
+        return;
+    }
     for (const auto& instance : instances) {
         cardsLayout_->insertWidget(cardsLayout_->count() - 1, buildInstanceCard(instance));
     }
-
-    if (instances.empty()) {
-        showPage(welcomePage_);
-    } else {
-        showPage(homePage_);
-        status_->setText(QStringLiteral("共 %1 个实例 · 点击启动开始游戏").arg(instances.size()));
-        if (currentId_.empty()) {
-            setCurrent(instances.front().id);
-        }
-    }
+    status_->setText(QStringLiteral("共 %1 个实例 · 点击启动打开 HMCL").arg(instances.size()));
+    if (currentId_.empty()) setCurrent(instances.front().id);
 }
 
-void MainWindow::showPage(QWidget* page) {
-    if (pages_->currentWidget() != page) {
-        pages_->setCurrentWidget(page);
-        fadeIn(page);
+void MainWindow::showPage(int index) {
+    if (!pages_ || index < 0 || index >= pages_->count()) return;
+    if (pages_->currentIndex() != index) {
+        pages_->setCurrentIndex(index);
+        fadeIn(pages_->currentWidget());
     }
 }
 
@@ -299,7 +399,7 @@ void MainWindow::fadeIn(QWidget* widget) {
     auto* effect = new QGraphicsOpacityEffect(widget);
     widget->setGraphicsEffect(effect);
     auto* animation = new QPropertyAnimation(effect, "opacity", widget);
-    animation->setDuration(180);
+    animation->setDuration(160);
     animation->setStartValue(0.0);
     animation->setEndValue(1.0);
     animation->start(QAbstractAnimation::DeleteWhenStopped);
@@ -307,31 +407,23 @@ void MainWindow::fadeIn(QWidget* widget) {
 
 void MainWindow::setCurrent(const std::string& id) {
     currentId_ = id;
-    for (QFrame* card : findChildren<QFrame*>("card")) {
-        const bool selected = card->property("instanceId").toString() == qs(id);
-        card->setProperty("selected", selected);
+    for (QFrame* card : findChildren<QFrame*>("instanceCard")) {
+        card->setProperty("selected", card->property("instanceId").toString() == qs(id));
         card->style()->unpolish(card);
         card->style()->polish(card);
     }
 }
 
 Instance* MainWindow::selectedInstance() {
-    if (currentId_.empty()) {
-        return nullptr;
-    }
+    if (currentId_.empty()) return nullptr;
     return Workspace::get().find(currentId_);
 }
 
 void MainWindow::showToast(const QString& title, const QString& detail, bool error) {
 #ifdef FLF_HAVE_HIBERGUI
-    if (toast_) {
-        toast_->showError(title, detail, error ? 4000 : 2600);
-        return;
-    }
+    if (toast_) { toast_->showError(title, detail, error ? 4000 : 2600); return; }
 #endif
-    if (error) {
-        QMessageBox::warning(this, title, detail);
-    }
+    if (error) QMessageBox::warning(this, title, detail);
 }
 
 void MainWindow::createInstance() {
@@ -339,39 +431,34 @@ void MainWindow::createInstance() {
     dialog.setWindowTitle("新建实例");
     dialog.setMinimumWidth(460);
     auto* layout = new QVBoxLayout(&dialog);
-    layout->setSpacing(14);
     layout->setContentsMargins(24, 22, 24, 20);
+    layout->setSpacing(14);
 
-    auto* title = new QLabel("给新实例起个名字", &dialog);
-    title->setObjectName("sectionTitle");
+    auto* title = new QLabel("创建实例", &dialog);
+    title->setObjectName("section");
     layout->addWidget(title);
-
     auto* nameEdit = new QLineEdit(&dialog);
-    nameEdit->setPlaceholderText("例如：我的世界");
+    nameEdit->setPlaceholderText("给实例起个名字");
     nameEdit->setText("我的实例");
     nameEdit->selectAll();
     layout->addWidget(nameEdit);
 
     std::string error;
     const HmclRelease release = fetchHmclRelease(&error);
-    const QString hmclVersion = release.ok ? qs(release.version) : "3.16.4";
-
-    auto* version = new QLabel(
-            QStringLiteral("HMCL 版本：%1（自动使用最新版）").arg(hmclVersion), &dialog);
-    version->setObjectName("cardSub");
-    layout->addWidget(version);
-
-    auto* hint = new QLabel("Java、Fabric 和依赖库会自动准备，不需要手动配置。", &dialog);
-    hint->setWordWrap(true);
+    const QString version = release.ok ? qs(release.version) : "3.16.4";
+    auto* versionLabel = new QLabel(QStringLiteral("HMCL %1（自动使用最新版）").arg(version), &dialog);
+    versionLabel->setObjectName("sub");
+    layout->addWidget(versionLabel);
+    auto* hint = new QLabel("Java、Fabric 与依赖库会自动准备，不需要手动配置。", &dialog);
     hint->setObjectName("hint");
+    hint->setWordWrap(true);
     layout->addWidget(hint);
 
     auto* buttons = new QHBoxLayout();
-    auto* cancel = new QPushButton("取消", &dialog);
-    cancel->setObjectName("secondary");
-    auto* create = new QPushButton("创建并准备", &dialog);
-    create->setObjectName("primary");
     buttons->addStretch();
+    auto* cancel = new QPushButton("取消", &dialog);
+    auto* create = new QPushButton("创建", &dialog);
+    create->setObjectName("primary");
     buttons->addWidget(cancel);
     buttons->addWidget(create);
     layout->addLayout(buttons);
@@ -384,10 +471,7 @@ void MainWindow::createInstance() {
         }
         dialog.accept();
     });
-
-    if (dialog.exec() != QDialog::Accepted) {
-        return;
-    }
+    if (dialog.exec() != QDialog::Accepted) return;
     runInstall(nameEdit->text().trimmed());
 }
 
@@ -412,78 +496,57 @@ void MainWindow::runInstall(const QString& name) {
         progress.setValue(std::max(2, percent));
         QCoreApplication::processEvents();
     }, &installError);
-
     if (!ok) {
         progress.close();
         showToast("准备失败", qs(installError), true);
         return;
     }
-
     Workspace::get().instances().push_back(instance);
     Workspace::get().saveInstances();
-    std::ofstream(Workspace::get().instanceDir(instance) / "instance.json")
-            << toJson(instance).dump(2);
-
+    std::ofstream(Workspace::get().instanceDir(instance) / "instance.json") << toJson(instance).dump(2);
     progress.setValue(100);
     refreshInstances();
     setCurrent(instance.id);
-    showToast("实例已就绪", QStringLiteral("现在可以点击“启动”开始游戏了"), false);
+    showPage(0);
+    showToast("实例已就绪", "现在可以点击“启动”开始游戏", false);
 }
 
 void MainWindow::launchSelected() {
     Instance* instance = selectedInstance();
-    if (!instance) {
-        showToast("还没有选择实例", "先点一张实例卡片，再点启动", true);
-        return;
-    }
+    if (!instance) { showToast("还没有选择实例", "先点一张实例卡片，再点启动", true); return; }
     std::string error;
-    if (!launchInstance(*instance, &error)) {
-        showToast("启动失败", qs(error), true);
-        return;
-    }
+    if (!launchInstance(*instance, &error)) { showToast("启动失败", qs(error), true); return; }
     showToast("已启动", QStringLiteral("正在打开 %1").arg(qs(instance->name)), false);
 }
 
 void MainWindow::quickStartSelected() {
     Instance* instance = selectedInstance();
-    if (!instance) {
-        showToast("还没有选择实例", "请先选择实例", true);
-        return;
-    }
+    if (!instance) { showToast("还没有选择实例", "请先选择实例", true); return; }
     const QString dir = QFileDialog::getExistingDirectory(this, "选择快速启动器输出目录");
-    if (dir.isEmpty()) {
-        return;
-    }
+    if (dir.isEmpty()) return;
     std::string error;
     if (!writeQuickStart(*instance, std::filesystem::path(dir.toStdWString()), &error)) {
         showToast("生成失败", qs(error), true);
         return;
     }
-    showToast("快速启动器已生成", "可直接用 FLFQuickStart.exe 启动该实例", false);
+    showToast("快速启动器已生成", "可直接用 FLFQuickStart.exe 启动", false);
 }
 
 void MainWindow::openMods() {
     Instance* instance = selectedInstance();
-    if (!instance) {
-        showToast("还没有选择实例", "请先选择实例", true);
-        return;
-    }
-
+    if (!instance) { showToast("还没有选择实例", "请先选择实例", true); return; }
     QDialog dialog(this);
     dialog.setWindowTitle("模组 - " + qs(instance->name));
     dialog.resize(560, 420);
     auto* layout = new QVBoxLayout(&dialog);
     auto* list = new QListWidget(&dialog);
     auto* row = new QHBoxLayout();
-    auto* importButton = new QPushButton("导入模组", &dialog);
+    auto* importButton = new QPushButton("导入", &dialog);
     auto* deleteButton = new QPushButton("删除", &dialog);
     auto* closeButton = new QPushButton("关闭", &dialog);
-    row->addWidget(importButton);
-    row->addWidget(deleteButton);
-    row->addStretch();
-    row->addWidget(closeButton);
-    layout->addWidget(list);
-    layout->addLayout(row);
+    row->addWidget(importButton); row->addWidget(deleteButton);
+    row->addStretch(); row->addWidget(closeButton);
+    layout->addWidget(list); layout->addLayout(row);
 
     auto reload = [&]() {
         list->clear();
@@ -495,7 +558,6 @@ void MainWindow::openMods() {
         }
     };
     reload();
-
     connect(list, &QListWidget::itemChanged, &dialog, [&](QListWidgetItem* item) {
         const fs::path path = std::filesystem::path(item->data(Qt::UserRole).toString().toStdWString());
         ModEntry entry{path, path.filename().string(), item->checkState() == Qt::Checked};
@@ -504,9 +566,7 @@ void MainWindow::openMods() {
     });
     connect(importButton, &QPushButton::clicked, &dialog, [&]() {
         const QString file = QFileDialog::getOpenFileName(this, "选择模组", {}, "Mods (*.jar)");
-        if (file.isEmpty()) {
-            return;
-        }
+        if (file.isEmpty()) return;
         std::string importError;
         if (!importMod(*instance, std::filesystem::path(file.toStdWString()), &importError)) {
             showToast("导入失败", qs(importError), true);
@@ -517,9 +577,7 @@ void MainWindow::openMods() {
     });
     connect(deleteButton, &QPushButton::clicked, &dialog, [&]() {
         auto* item = list->currentItem();
-        if (!item) {
-            return;
-        }
+        if (!item) return;
         std::string modError;
         deleteMod(ModEntry{std::filesystem::path(item->data(Qt::UserRole).toString().toStdWString()), "", true}, &modError);
         reload();
@@ -528,53 +586,12 @@ void MainWindow::openMods() {
     dialog.exec();
 }
 
-void MainWindow::openSettings() {
-    QDialog dialog(this);
-    dialog.setWindowTitle("设置");
-    dialog.setMinimumWidth(460);
-    auto* layout = new QVBoxLayout(&dialog);
-
-    auto* title = new QLabel("基本设置", &dialog);
-    title->setObjectName("sectionTitle");
-    layout->addWidget(title);
-
-    auto* path = new QLabel(QStringLiteral("数据目录：%1")
-                                    .arg(QString::fromStdWString(Workspace::get().home().wstring())),
-                            &dialog);
-    path->setWordWrap(true);
-    path->setObjectName("cardSub");
-    layout->addWidget(path);
-
-    auto* open = new QPushButton("打开数据目录", &dialog);
-    open->setObjectName("secondary");
-    connect(open, &QPushButton::clicked, this, &MainWindow::openFolder);
-    layout->addWidget(open);
-
-    auto* check = new QPushButton("检查 HMCL 更新", &dialog);
-    check->setObjectName("secondary");
-    connect(check, &QPushButton::clicked, this, &MainWindow::checkUpdate);
-    layout->addWidget(check);
-
-    auto* advanced = new QLabel(
-            "高级选项（隔离、Java、代理）保留在配置文件中；普通使用不需要修改。", &dialog);
-    advanced->setWordWrap(true);
-    advanced->setObjectName("hint");
-    layout->addWidget(advanced);
-
-    auto* close = new QPushButton("完成", &dialog);
-    close->setObjectName("primary");
-    connect(close, &QPushButton::clicked, &dialog, &QDialog::accept);
-    layout->addWidget(close);
-    dialog.exec();
-}
+void MainWindow::openSettings() { showPage(1); }
 
 void MainWindow::checkUpdate() {
     std::string error;
     const HmclRelease release = fetchHmclRelease(&error);
-    if (!release.ok) {
-        showToast("检查更新失败", qs(error), true);
-        return;
-    }
+    if (!release.ok) { showToast("检查更新失败", qs(error), true); return; }
     if (release.version == Workspace::get().config().hmclVersion) {
         showToast("已经是最新版本", QStringLiteral("HMCL %1").arg(qs(release.version)), false);
         return;
@@ -590,20 +607,11 @@ void MainWindow::openFolder() {
 
 void MainWindow::deleteInstance() {
     Instance* instance = selectedInstance();
-    if (!instance) {
-        showToast("还没有选择实例", "请先选择实例", true);
-        return;
-    }
-    if (QMessageBox::question(this, "删除实例",
-                              QStringLiteral("确定删除“%1”吗？").arg(qs(instance->name)))
-            != QMessageBox::Yes) {
-        return;
-    }
+    if (!instance) { showToast("还没有选择实例", "请先选择实例", true); return; }
+    if (QMessageBox::question(this, "删除实例", QStringLiteral("确定删除“%1”吗？").arg(qs(instance->name))) != QMessageBox::Yes) return;
     const std::string id = instance->id;
     auto& list = Workspace::get().instances();
-    list.erase(std::remove_if(list.begin(), list.end(),
-                             [&](const Instance& item) { return item.id == id; }),
-               list.end());
+    list.erase(std::remove_if(list.begin(), list.end(), [&](const Instance& item) { return item.id == id; }), list.end());
     Workspace::get().saveInstances();
     std::error_code ec;
     fs::remove_all(Workspace::get().instanceDir(*instance), ec);

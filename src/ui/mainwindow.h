@@ -9,6 +9,7 @@ class QStackedWidget;
 class QVBoxLayout;
 class QWidget;
 class QPushButton;
+class QCheckBox;
 
 namespace HiBerGUI {
 class ToastNotification;
@@ -36,24 +37,29 @@ private slots:
 private:
     Instance* selectedInstance();
     void buildUi();
-    QWidget* buildWelcomePage();
-    QWidget* buildHomePage();
+    QWidget* buildTopBar();
+    QWidget* buildSidebar();
+    QWidget* buildLaunchPage();
+    QWidget* buildSettingsPage();
+    QWidget* buildHelpPage();
     QWidget* buildInstanceCard(const Instance& instance);
-    void showPage(QWidget* page);
+    void showPage(int index);
+    void applyTheme();
     void showToast(const QString& title, const QString& detail, bool error = false);
     void runInstall(const QString& name);
     void setCurrent(const std::string& id);
     void fadeIn(QWidget* widget);
 
     QStackedWidget* pages_ = nullptr;
-    QWidget* welcomePage_ = nullptr;
-    QWidget* homePage_ = nullptr;
     QVBoxLayout* cardsLayout_ = nullptr;
-    QLabel* homeTitle_ = nullptr;
+    QWidget* launchPage_ = nullptr;
+    QWidget* settingsPage_ = nullptr;
+    QWidget* helpPage_ = nullptr;
     QLabel* status_ = nullptr;
-    QPushButton* launchButton_ = nullptr;
+    QCheckBox* darkToggle_ = nullptr;
     HiBerGUI::ToastNotification* toast_ = nullptr;
     std::string currentId_;
+    bool dark_ = false;
 };
 
 } // namespace flf
