@@ -475,6 +475,48 @@ bool installFlfApi(Instance& instance, const ProgressFn& progress, std::string* 
     return true;
 }
 
+bool installFlfTitle(Instance& instance, const ProgressFn& progress, std::string* error) {
+    std::string metadataError;
+    const FlfRelease release = fetchFlfRelease("flftitle", &metadataError);
+    if (!release.ok) {
+        progress("跳过 FLF Title（元数据不可用）", 96);
+        return true;
+    }
+    const std::string fileName = "flf-title-" + release.version + ".jar";
+    const fs::path dir = Workspace::get().resolveMods(instance);
+    const fs::path target = dir / fileName;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        if (!entry.is_regular_file()) continue;
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("flf-title-", 0) == 0 && name != fileName) {
+            fs::remove(entry.path(), ec);
+        }
+    }
+    if (fs::exists(target)) {
+        progress("FLF Title 已就绪", 97);
+        return true;
+    }
+    progress("下载 FLF Title", 96);
+    if (!httpDownload(release.downloadLink, target,
+            [&](std::int64_t received, std::int64_t total) {
+                if (total > 0) {
+                    progress("FLF Title " + std::to_string(received * 100 / total) + "%", 96);
+                }
+                return true;
+            }, error)) {
+        return false;
+    }
+    if (!release.sha256.empty() && sha256File(target) != release.sha256) {
+        fs::remove(target, ec);
+        if (error) *error = "FLF Title 校验失败";
+        return false;
+    }
+    progress("FLF Title 已就绪", 97);
+    return true;
+}
+
 bool installFlfDependencies(const FlfRelease& release, const ProgressFn& progress, std::string* error) {
     const int total = std::max<int>(1, static_cast<int>(release.dependencies.size()));
     int index = 0;
@@ -586,6 +628,9 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
     }
 
     if (!installFlfApi(instance, progress, error)) {
+        return false;
+    }
+    if (!installFlfTitle(instance, progress, error)) {
         return false;
     }
 
