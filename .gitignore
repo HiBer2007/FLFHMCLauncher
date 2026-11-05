@@ -19,3 +19,6 @@ video/*.png
 
 video/_seg/
 video/dsh_frames/
+
+video/*.jpg
+video/__pycache__/
