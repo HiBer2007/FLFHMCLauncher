@@ -571,7 +571,7 @@ def main():
     subprocess.run([
         r"D:\Program Files\ffmpeg\bin\ffmpeg.exe", "-y",
         "-framerate", str(FPS), "-i", str(OUT / "%05d.jpg"),
-        "-ss", "15", "-t", str(DURATION), "-i", r"K:\Music\Dragonflame - Kirara Magic.flac",
+        "-ss", "0", "-t", str(DURATION), "-i", r"K:\Music\Dragonflame - Kirara Magic.flac",
         "-filter_complex", "[1:a]afade=t=in:st=0:d=1.5,afade=t=out:st=146:d=4[a]",
         "-map", "0:v:0", "-map", "[a]",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",

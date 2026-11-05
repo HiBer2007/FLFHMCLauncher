@@ -3,7 +3,7 @@
 - 片长：150 秒
 - 画幅：1920×1080 / 30fps
 - 配色：亮色蓝紫
-- 音乐：Dragonflame — Kirara Magic（15s–165s）
+- 音乐：Dragonflame — Kirara Magic（0s–150s，保留开场渐强）
 - 旁白：无
 - 主角：**FLFHMCL —— 给 HMCL 提供 Fabric 运行时**
 - 配角：FLF API（HMCL 的 Fabric API 式扩展层）、mclhr（底层库解析技术手段）
