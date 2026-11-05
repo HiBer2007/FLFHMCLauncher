@@ -1048,14 +1048,43 @@ void MainWindow::showUpdateDialog() {
         return;
     }
 
-    // 先同步拉取版本列表，再打开对话框。避免异步 clear()/addItem() 与下拉弹窗同时操作模型导致崩溃。
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    std::string error;
-    const auto hmclVersions = fetchHmclVersions(nullptr, &error);
-    const FlfRelease agentRelease = fetchFlfRelease("flfhmcl", &error);
-    const auto loaderVersions = fetchFabricLoaders("1.21.1", &error);
-    QApplication::restoreOverrideCursor();
+    const int token = ++updateLoadToken_;
+    auto* loading = new QProgressDialog("正在加载组件版本…", QString(), 0, 0, this);
+    loading->setWindowTitle("更新实例组件");
+    loading->setWindowModality(Qt::ApplicationModal);
+    loading->setCancelButton(nullptr);
+    loading->setMinimumDuration(0);
+    loading->show();
+    QPointer<QProgressDialog> loadingGuard = loading;
+    const Instance snapshot = *instance;
 
+    std::thread([this, token, loadingGuard, snapshot]() {
+        std::string error;
+        const auto hmclVersions = fetchHmclVersions(nullptr, &error);
+        const FlfRelease agentRelease = fetchFlfRelease("flfhmcl", &error);
+        const auto loaderVersions = fetchFabricLoaders("1.21.1", &error);
+        QStringList hmclList;
+        for (const auto& version : hmclVersions) hmclList.append(qs(version));
+        QStringList agentList;
+        for (const auto& version : agentRelease.versions) agentList.append(qs(version.version));
+        QStringList loaderList;
+        for (const auto& version : loaderVersions) loaderList.append(qs(version));
+        QMetaObject::invokeMethod(this, [this, token, loadingGuard, snapshot,
+                                         hmclList, agentList, loaderList]() {
+            if (loadingGuard) {
+                loadingGuard->close();
+                loadingGuard->deleteLater();
+            }
+            if (token != updateLoadToken_) return;
+            openUpdateDialog(snapshot, hmclList, agentList, loaderList);
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void MainWindow::openUpdateDialog(const Instance& instance,
+                                  const QStringList& hmclVersions,
+                                  const QStringList& agentVersions,
+                                  const QStringList& loaderVersions) {
     QDialog dialog(this);
     dialog.setWindowTitle("更新实例组件");
     dialog.setMinimumWidth(460);
@@ -1084,22 +1113,15 @@ void MainWindow::showUpdateDialog() {
         layout->addLayout(row);
     };
 
-    QStringList hmclList;
-    for (const auto& version : hmclVersions) hmclList.append(qs(version));
-    QStringList agentList;
-    for (const auto& version : agentRelease.versions) agentList.append(qs(version.version));
-    QStringList loaderList;
-    for (const auto& version : loaderVersions) loaderList.append(qs(version));
-
     QCheckBox* hmclCheck = nullptr;
     QCheckBox* agentCheck = nullptr;
     QCheckBox* loaderCheck = nullptr;
     QComboBox* hmclCombo = nullptr;
     QComboBox* agentCombo = nullptr;
     QComboBox* loaderCombo = nullptr;
-    makeRow("HMCL", qs(instance->hmclVersion), hmclList, hmclCheck, hmclCombo);
-    makeRow("FLFHMCL", qs(instance->agentVersion), agentList, agentCheck, agentCombo);
-    makeRow("Fabric Loader", qs(instance->loaderVersion), loaderList, loaderCheck, loaderCombo);
+    makeRow("HMCL", qs(instance.hmclVersion), hmclVersions, hmclCheck, hmclCombo);
+    makeRow("FLFHMCL", qs(instance.agentVersion), agentVersions, agentCheck, agentCombo);
+    makeRow("Fabric Loader", qs(instance.loaderVersion), loaderVersions, loaderCheck, loaderCombo);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons->button(QDialogButtonBox::Ok)->setText("开始更新");
@@ -1114,7 +1136,7 @@ void MainWindow::showUpdateDialog() {
         return;
     }
 
-    Instance updated = *instance;
+    Instance updated = instance;
     if (hmclCheck->isChecked() && hmclCombo->currentData().isValid()) {
         updated.hmclVersion = ss(hmclCombo->currentData().toString());
         updated.hmclSha1.clear();

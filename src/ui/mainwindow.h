@@ -69,6 +69,8 @@ private:
     void beginInstall();
     void beginRepair(const Instance& instance);
     void showUpdateDialog();
+    void openUpdateDialog(const Instance& instance, const QStringList& hmclVersions,
+                          const QStringList& agentVersions, const QStringList& loaderVersions);
     void beginComponentUpdate(const Instance& instance);
     void finishRepair(const Instance& instance, bool ok, const QString& error);
     void fillVersionCombo(QComboBox* channel, QComboBox* version,
@@ -123,6 +125,7 @@ private:
     int hmclToken_ = 0;
     int fabricToken_ = 0;
     int apiToken_ = 0;
+    int updateLoadToken_ = 0;
     QLabel* installTitle_ = nullptr;
     QLabel* installPercent_ = nullptr;
     QProgressBar* installBar_ = nullptr;
