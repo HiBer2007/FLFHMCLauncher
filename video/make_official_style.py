@@ -86,26 +86,26 @@ def main():
     image_segment(imgs[0], 5, seg / "s0.mp4")
     video_segment(ROOT / "hmcl-demo.mp4", 0, 12, seg / "s1.mp4",
                   "HMCL 已被 FLFHMCL 接管", "标题栏标记 + Fabric 运行时",
-                  crop=(1480, 900, 32, 18))
+                  crop=(1504, 920, 20, 0))
     video_segment(ROOT / "launcher-demo.mp4", 0, 10, seg / "s2.mp4",
                   "FLFHMCLauncher：可选外壳", "环境配置 / 快速启动 / 版本隔离 / 缓存",
-                  crop=(1020, 720, 36, 14))
+                  crop=(1050, 742, 22, 0))
     video_segment(ROOT / "demo-create.mp4", 0, 9, seg / "s3.mp4",
                   "新建实例：一次配好", "Java / HMCL / FLFHMCL / Fabric",
-                  crop=(1020, 720, 36, 14))
+                  crop=(1050, 742, 22, 0))
     video_segment(ROOT / "demo-update.mp4", 0, 9, seg / "s4.mp4",
                   "更新组件：版本切换", "自动补全缺失文件",
-                  crop=(1020, 720, 36, 14))
+                  crop=(1050, 742, 22, 0))
     video_segment(ROOT / "demo-quick.mp4", 0, 10, seg / "s5.mp4",
                   "创建快速启动器", "桌面快捷方式，双击即玩",
-                  crop=(1020, 720, 36, 14))
+                  crop=(1050, 742, 22, 0))
     video_segment(ROOT / "hmcl-pages.mp4", 0, 9, seg / "s6.mp4",
                   "同一个运行时，接管多个 HMCL", "3.14 / 3.15 / 3.16 / 3.17",
-                  crop=(1480, 900, 32, 18))
+                  crop=(1504, 920, 20, 0))
     image_segment(imgs[1], 9, seg / "s7.mp4")
     video_segment(ROOT / "launcher-demo.mp4", 2, 8, seg / "s8.mp4",
                   "环境、实例、缓存，一次配好", "不用它也能直接启动 FLFHMCL",
-                  crop=(1020, 720, 36, 14))
+                  crop=(1050, 742, 22, 0))
     image_segment(imgs[2], 9, seg / "s9.mp4")
     image_segment(imgs[4], 10, seg / "s10.mp4")
 
