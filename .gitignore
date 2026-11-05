@@ -16,3 +16,6 @@ video/voice/
 video/*.wav
 video/*.mp4
 video/*.png
+
+video/_seg/
+video/dsh_frames/
