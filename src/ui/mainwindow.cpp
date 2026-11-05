@@ -1048,6 +1048,14 @@ void MainWindow::showUpdateDialog() {
         return;
     }
 
+    // 先同步拉取版本列表，再打开对话框。避免异步 clear()/addItem() 与下拉弹窗同时操作模型导致崩溃。
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    std::string error;
+    const auto hmclVersions = fetchHmclVersions(nullptr, &error);
+    const FlfRelease agentRelease = fetchFlfRelease("flfhmcl", &error);
+    const auto loaderVersions = fetchFabricLoaders("1.21.1", &error);
+    QApplication::restoreOverrideCursor();
+
     QDialog dialog(this);
     dialog.setWindowTitle("更新实例组件");
     dialog.setMinimumWidth(460);
@@ -1060,17 +1068,28 @@ void MainWindow::showUpdateDialog() {
     layout->addWidget(hint);
 
     auto makeRow = [&](const QString& name, const QString& current,
-                       QCheckBox*& check, QComboBox*& combo) {
+                       const QStringList& versions, QCheckBox*& check, QComboBox*& combo) {
         auto* row = new QHBoxLayout();
         check = new QCheckBox(name + QStringLiteral("（当前 %1）").arg(current), &dialog);
         combo = new QComboBox(&dialog);
-        combo->addItem("加载中…");
-        combo->setEnabled(false);
+        for (const QString& version : versions) {
+            combo->addItem(version, version);
+        }
+        if (combo->count() == 0) {
+            combo->addItem(current.isEmpty() ? "无可用版本" : current, current);
+        }
         combo->setMinimumWidth(160);
         row->addWidget(check, 1);
         row->addWidget(combo);
         layout->addLayout(row);
     };
+
+    QStringList hmclList;
+    for (const auto& version : hmclVersions) hmclList.append(qs(version));
+    QStringList agentList;
+    for (const auto& version : agentRelease.versions) agentList.append(qs(version.version));
+    QStringList loaderList;
+    for (const auto& version : loaderVersions) loaderList.append(qs(version));
 
     QCheckBox* hmclCheck = nullptr;
     QCheckBox* agentCheck = nullptr;
@@ -1078,9 +1097,9 @@ void MainWindow::showUpdateDialog() {
     QComboBox* hmclCombo = nullptr;
     QComboBox* agentCombo = nullptr;
     QComboBox* loaderCombo = nullptr;
-    makeRow("HMCL", qs(instance->hmclVersion), hmclCheck, hmclCombo);
-    makeRow("FLFHMCL", qs(instance->agentVersion), agentCheck, agentCombo);
-    makeRow("Fabric Loader", qs(instance->loaderVersion), loaderCheck, loaderCombo);
+    makeRow("HMCL", qs(instance->hmclVersion), hmclList, hmclCheck, hmclCombo);
+    makeRow("FLFHMCL", qs(instance->agentVersion), agentList, agentCheck, agentCombo);
+    makeRow("Fabric Loader", qs(instance->loaderVersion), loaderList, loaderCheck, loaderCombo);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons->button(QDialogButtonBox::Ok)->setText("开始更新");
@@ -1088,49 +1107,6 @@ void MainWindow::showUpdateDialog() {
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    QPointer<QComboBox> hmclGuard = hmclCombo;
-    QPointer<QComboBox> agentGuard = agentCombo;
-    QPointer<QComboBox> loaderGuard = loaderCombo;
-
-    std::thread([this, hmclGuard]() {
-        std::string error;
-        auto versions = fetchHmclVersions(nullptr, &error);
-        QStringList list;
-        for (const auto& version : versions) list.append(qs(version));
-        QMetaObject::invokeMethod(this, [hmclGuard, list]() {
-            if (!hmclGuard) return;
-            hmclGuard->clear();
-            for (const QString& version : list) hmclGuard->addItem(version, version);
-            hmclGuard->setEnabled(!list.isEmpty());
-        }, Qt::QueuedConnection);
-    }).detach();
-
-    std::thread([this, agentGuard]() {
-        std::string error;
-        const FlfRelease release = fetchFlfRelease("flfhmcl", &error);
-        QStringList list;
-        for (const auto& item : release.versions) list.append(qs(item.version));
-        QMetaObject::invokeMethod(this, [agentGuard, list]() {
-            if (!agentGuard) return;
-            agentGuard->clear();
-            for (const QString& version : list) agentGuard->addItem(version, version);
-            agentGuard->setEnabled(!list.isEmpty());
-        }, Qt::QueuedConnection);
-    }).detach();
-
-    std::thread([this, loaderGuard]() {
-        std::string error;
-        auto loaders = fetchFabricLoaders("1.21.1", &error);
-        QStringList list;
-        for (const auto& loader : loaders) list.append(qs(loader));
-        QMetaObject::invokeMethod(this, [loaderGuard, list]() {
-            if (!loaderGuard) return;
-            loaderGuard->clear();
-            for (const QString& loader : list) loaderGuard->addItem(loader, loader);
-            loaderGuard->setEnabled(!list.isEmpty());
-        }, Qt::QueuedConnection);
-    }).detach();
 
     if (dialog.exec() != QDialog::Accepted) return;
     if (!hmclCheck->isChecked() && !agentCheck->isChecked() && !loaderCheck->isChecked()) {
