@@ -564,10 +564,18 @@ def main():
         for n, _ in enumerate(pool.imap_unordered(render, range(total), chunksize=8), 1):
             if n % 200 == 0:
                 print(f"rendered {n}/{total}")
+    audio_wav = ROOT / "music_full.wav"
+    if not audio_wav.exists():
+        subprocess.run([
+            r"D:\Program Files\ffmpeg\bin\ffmpeg.exe", "-y", "-v", "error",
+            "-err_detect", "ignore_err",
+            "-i", r"K:\Music\Dragonflame - Kirara Magic.flac",
+            "-t", str(DURATION), "-ac", "2", "-ar", "44100", str(audio_wav),
+        ], check=False)
     subprocess.run([
         r"D:\Program Files\ffmpeg\bin\ffmpeg.exe", "-y",
         "-framerate", str(FPS), "-i", str(OUT / "%05d.jpg"),
-        "-i", r"K:\Music\Dragonflame - Kirara Magic.flac",
+        "-i", str(audio_wav),
         "-filter_complex", "[1:a]afade=t=out:st=194.6:d=4[a]",
         "-map", "0:v:0", "-map", "[a]",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
