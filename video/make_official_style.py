@@ -52,8 +52,9 @@ def video_segment(src, start, dur, out, text, sub="", crop=None):
     vf = []
     if crop:
         vf.append(f"crop={crop[0]}:{crop[1]}:{crop[2]}:{crop[3]}")
-    vf += ["scale=1920:1080:force_original_aspect_ratio=increase",
-           "crop=1920:1080", "setsar=1", "fps=30"]
+    vf += ["scale=1920:1080:force_original_aspect_ratio=decrease",
+           "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=white",
+           "setsar=1", "fps=30"]
     run([FF, "-y", "-ss", str(start), "-t", str(dur), "-i", str(src),
          "-i", str(ROOT / "_lt.png"),
          "-filter_complex", ",".join(vf) + "[v];[v][1:v]overlay=0:0[o]",
@@ -81,37 +82,45 @@ def main():
 
     seg = ROOT / "_seg"
     seg.mkdir(exist_ok=True)
-    # 真实录屏，白底标题卡穿插
-    image_segment(imgs[0], 6, seg / "s0.mp4")
-    video_segment(ROOT / "hmcl-demo.mp4", 0, 14, seg / "s1.mp4",
-                  "HMCL 已被 FLFHMCL 接管", "标题栏标记 + Fabric 运行时", crop=(1544, 942, 0, 0))
-    video_segment(ROOT / "launcher-demo.mp4", 0, 12, seg / "s2.mp4",
+    # 真实录屏，白底标题卡穿插；HMCL 录屏内缩 20px 去掉自渲染阴影
+    image_segment(imgs[0], 5, seg / "s0.mp4")
+    video_segment(ROOT / "hmcl-demo.mp4", 0, 12, seg / "s1.mp4",
+                  "HMCL 已被 FLFHMCL 接管", "标题栏标记 + Fabric 运行时",
+                  crop=(1504, 942, 20, 0))
+    video_segment(ROOT / "launcher-demo.mp4", 0, 10, seg / "s2.mp4",
                   "FLFHMCLauncher：可选外壳", "环境配置 / 快速启动 / 版本隔离 / 缓存",
-                  crop=(1060, 700, 30, 40))
-    video_segment(ROOT / "hmcl-demo.mp4", 2, 12, seg / "s3.mp4",
-                  "一个运行时，接管多个 HMCL", "3.14 / 3.15 / 3.16 / 3.17",
-                  crop=(1100, 700, 0, 0))
-    image_segment(imgs[1], 10, seg / "s4.mp4")
-    video_segment(ROOT / "launcher-demo.mp4", 2, 12, seg / "s5.mp4",
+                  crop=(1050, 730, 20, 10))
+    video_segment(ROOT / "demo-create.mp4", 0, 9, seg / "s3.mp4",
+                  "新建实例：一次配好", "Java / HMCL / FLFHMCL / Fabric",
+                  crop=(1050, 730, 20, 10))
+    video_segment(ROOT / "demo-update.mp4", 0, 9, seg / "s4.mp4",
+                  "更新组件：版本切换", "自动补全缺失文件",
+                  crop=(1050, 730, 20, 10))
+    video_segment(ROOT / "demo-quick.mp4", 0, 10, seg / "s5.mp4",
+                  "创建快速启动器", "桌面快捷方式，双击即玩",
+                  crop=(1050, 730, 20, 10))
+    video_segment(ROOT / "hmcl-pages.mp4", 0, 9, seg / "s6.mp4",
+                  "同一个运行时，接管多个 HMCL", "3.14 / 3.15 / 3.16 / 3.17",
+                  crop=(1504, 942, 20, 0))
+    image_segment(imgs[1], 9, seg / "s7.mp4")
+    video_segment(ROOT / "launcher-demo.mp4", 2, 8, seg / "s8.mp4",
                   "环境、实例、缓存，一次配好", "不用它也能直接启动 FLFHMCL",
-                  crop=(1060, 700, 30, 40))
-    image_segment(imgs[2], 10, seg / "s6.mp4")
-    video_segment(ROOT / "launcher-demo.mp4", 0, 12, seg / "s7.mp4",
-                  "快速启动器：双击即玩", "桌面快捷方式直接进入游戏",
-                  crop=(1060, 700, 30, 40))
-    image_segment(imgs[3], 8, seg / "s8.mp4")
-    image_segment(imgs[4], 8, seg / "s9.mp4")
+                  crop=(1050, 730, 20, 10))
+    image_segment(imgs[2], 9, seg / "s9.mp4")
+    image_segment(imgs[4], 10, seg / "s10.mp4")
 
     concat = seg / "list.txt"
     with open(concat, "w", encoding="utf-8") as f:
-        for i in range(10):
+        for i in range(11):
             f.write(f"file '{seg / ('s' + str(i) + '.mp4')}'\n")
     run([FF, "-y", "-f", "concat", "-safe", "0", "-i", str(concat),
          "-i", str(ROOT / "music_full.wav"),
          "-filter_complex", "[1:a]afade=t=out:st=96:d=4[a]",
          "-map", "0:v:0", "-map", "[a]", "-c:v", "copy", "-c:a", "aac",
          "-b:a", "192k", "-shortest", "-t", "100",
-         str(ROOT / "FLFHMCL-官方风格-100秒.mp4")])
+         str(ROOT / "FLFHMCL-官方风格-97秒.mp4")])
 
 if __name__ == "__main__":
     main()
+
+
