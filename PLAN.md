@@ -1,7 +1,11 @@
 # FLFHMCLauncher — 设计与实施计划（PLAN）
 
-> 状态：v0.1 设计稿（仓库初始化阶段）
-> 目标：用 C++ / 静态 Qt 实现 FLFHMCL 的原生启动器，支持实例管理、共享库（ichor 风格）、
+> 状态：历史设计稿（v0.1）。当前定位以 [README.md](README.md) 为准。
+>
+> **FLFHMCLauncher 是 FLFHMCL 的外壳**：环境配置、快速启动、版本隔离、缓存。
+> FLFHMCL 才是核心，它给 HMCL 提供 Fabric 运行时；跨版本兼容只是维护手段。
+
+> 目标：用 C++ / 静态 Qt 实现 FLFHMCL 的外壳，支持实例管理、共享库（ichor 风格）、
 > 快速启动、在线安装、更新接管与崩溃上报。
 
 ---

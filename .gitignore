@@ -7,3 +7,12 @@ out/
 CMakeUserPresets.json
 *.log
 .flfhmcl/
+
+# 视频渲染产物
+video/frames/
+video/promo_frames/
+video/film_frames/
+video/voice/
+video/*.wav
+video/*.mp4
+video/*.png
