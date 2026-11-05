@@ -48,6 +48,8 @@ struct FlfVersion {
     std::string version;
     std::string downloadLink;
     std::string sha256;
+    std::vector<std::string> hmclVersions;
+    std::vector<std::string> flfhmclVersions;
 };
 
 /// 已知存在严重故障、不建议继续使用的版本。

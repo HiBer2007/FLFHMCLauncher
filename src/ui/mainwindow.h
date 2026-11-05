@@ -76,9 +76,11 @@ private:
     void startAgentLoad();
     void startHmclLoad();
     void startFabricLoad();
+    void startApiLoad();
     void stopAgentLoad();
     void stopHmclLoad();
     void stopFabricLoad();
+    void stopApiLoad();
     void updateInstallStep(const QString& step, int percent);
     void finishInstall(const Instance& instance, bool ok, const QString& error);
     void applyTheme();
@@ -103,6 +105,9 @@ private:
     QComboBox* createAgentChannel_ = nullptr;
     QStringList hmclStable_, hmclPreview_, agentStable_, agentPreview_;
     QComboBox* createFabric_ = nullptr;
+    QComboBox* createApi_ = nullptr;
+    QProgressBar* apiBusy_ = nullptr;
+    QPushButton* createStart_ = nullptr;
     QCheckBox* createIsolated_ = nullptr;
     QLabel* createError_ = nullptr;
     QProgressBar* agentBusy_ = nullptr;
@@ -117,6 +122,7 @@ private:
     int agentToken_ = 0;
     int hmclToken_ = 0;
     int fabricToken_ = 0;
+    int apiToken_ = 0;
     QLabel* installTitle_ = nullptr;
     QLabel* installPercent_ = nullptr;
     QProgressBar* installBar_ = nullptr;

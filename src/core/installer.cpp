@@ -389,12 +389,68 @@ bool ensureAgent(const std::string& version, const ProgressFn& progress, std::st
     return true;
 }
 
+void removeOtherApiJars(const Instance& instance, const std::string& keep) {
+    std::error_code ec;
+    const fs::path mods = Workspace::get().resolveMods(instance);
+    if (!fs::is_directory(mods, ec)) return;
+    for (const auto& entry : fs::directory_iterator(mods, ec)) {
+        if (!entry.is_regular_file()) continue;
+        const std::string name = entry.path().filename().string();
+        const bool apiJar = name.rfind("flf-api-", 0) == 0
+                || name.rfind("dist-1.2.0-hmcl", 0) == 0;
+        if (apiJar && name != keep) {
+            fs::remove(entry.path(), ec);
+        }
+    }
+}
+
 bool installFlfApi(Instance& instance, const ProgressFn& progress, std::string* error) {
+    if (instance.flfApiVersion == "none") {
+        removeOtherApiJars(instance, {});
+        progress("跳过 FLF API", 95);
+        return true;
+    }
+    std::string wanted = instance.flfApiVersion;
+    if (wanted.empty()) {
+        const FlfRelease all = fetchFlfRelease("flfapi", nullptr);
+        for (const auto& version : all.versions) {
+            bool hmclOk = version.hmclVersions.empty();
+            for (const auto& item : version.hmclVersions) {
+                if (item == instance.hmclVersion) {
+                    hmclOk = true;
+                    break;
+                }
+            }
+            if (!hmclOk) continue;
+            bool agentOk = true;
+            for (const auto& requirement : version.flfhmclVersions) {
+                if (requirement.rfind(">=", 0) == 0) {
+                    const std::string minimum = requirement.substr(2);
+                    if (instance.agentVersion < minimum
+                            && !instance.agentVersion.empty()) {
+                        agentOk = false;
+                    }
+                }
+            }
+            if (!agentOk) continue;
+            wanted = version.version;
+            break;
+        }
+        if (wanted.empty()) {
+            progress("跳过 FLF API（无适配版本）", 95);
+            return true;
+        }
+        instance.flfApiVersion = wanted;
+    }
     std::string metadataError;
-    const FlfRelease release = fetchFlfRelease("flfapi", &metadataError);
-    if (!release.ok) return true;
+    const FlfRelease release = fetchFlfRelease("flfapi", &metadataError, wanted);
+    if (!release.ok) {
+        if (error) *error = "FLF API 版本不可用: " + wanted;
+        return false;
+    }
     const std::string fileName = release.downloadLink.substr(release.downloadLink.find_last_of('/') + 1);
     const fs::path target = Workspace::get().resolveMods(instance) / fileName;
+    removeOtherApiJars(instance, fileName);
     if (fs::exists(target)) {
         progress("FLF API 已就绪", 95);
         return true;

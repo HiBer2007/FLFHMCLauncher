@@ -28,6 +28,7 @@ struct Instance {
     std::string agentVersion;  // FLFHMCL Agent 版本
     std::string hmclVersion;   // HMCL 版本
     std::string hmclSha1;      // HMCL jar SHA-1
+    std::string flfApiVersion; // 空 = 不安装 / 自动
     Layer mods;
     Layer minecraft;
     Layer hmclHome;

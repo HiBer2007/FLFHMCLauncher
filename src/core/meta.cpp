@@ -229,6 +229,12 @@ FlfRelease fetchFlfRelease(const std::string& type, std::string* error, const st
             item.version = entry.value("version", "");
             item.downloadLink = entry.value("download_link", "");
             item.sha256 = entry.value("sha_256", "");
+            for (const auto& value : entry.value("hmcl_versions", nlohmann::json::array())) {
+                if (value.is_string()) item.hmclVersions.push_back(value.get<std::string>());
+            }
+            for (const auto& value : entry.value("flfhmcl_versions", nlohmann::json::array())) {
+                if (value.is_string()) item.flfhmclVersions.push_back(value.get<std::string>());
+            }
             if (item.version.empty()) continue;
             result.versions.push_back(item);
             if (item.version == result.version) {

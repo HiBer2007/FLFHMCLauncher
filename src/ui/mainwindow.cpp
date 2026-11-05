@@ -57,6 +57,27 @@ QSettings uiSettings() {
 QString qs(const std::string& v) { return QString::fromUtf8(v); }
 std::string ss(const QString& v) { return v.toUtf8().toStdString(); }
 
+/// 比较点分版本，返回 <0 / 0 / >0。
+int compareVersion(const QString& left, const QString& right) {
+    const QStringList a = left.split('.');
+    const QStringList b = right.split('.');
+    const int count = std::max(a.size(), b.size());
+    for (int i = 0; i < count; ++i) {
+        const int x = i < a.size() ? a[i].toInt() : 0;
+        const int y = i < b.size() ? b[i].toInt() : 0;
+        if (x != y) return x < y ? -1 : 1;
+    }
+    return 0;
+}
+
+bool versionSatisfies(const QString& version, const QString& requirement) {
+    if (requirement.startsWith(">=")) return compareVersion(version, requirement.mid(2)) >= 0;
+    if (requirement.startsWith("<=")) return compareVersion(version, requirement.mid(2)) <= 0;
+    if (requirement.startsWith(">")) return compareVersion(version, requirement.mid(1)) > 0;
+    if (requirement.startsWith("<")) return compareVersion(version, requirement.mid(1)) < 0;
+    return version == requirement;
+}
+
 QString makeId(const QString& name) {
     QString id;
     for (QChar c : name.toLower()) {
@@ -540,18 +561,40 @@ QWidget* MainWindow::buildCreatePage() {
     fabricBusy_->setFixedHeight(4);
     form->addWidget(fabricBusy_);
 
+    auto* apiLabel = new QLabel("FLF API 版本", card);
+    form->addWidget(apiLabel);
+    auto* apiRow = new QHBoxLayout();
+    createApi_ = new QComboBox(card);
+    createApi_->addItem("不安装 FLF API", "none");
+    createApi_->setEnabled(false);
+    auto* apiRefresh = new QPushButton("刷新", card);
+    apiRow->addWidget(createApi_, 1);
+    apiRow->addWidget(apiRefresh);
+    form->addLayout(apiRow);
+    apiBusy_ = new QProgressBar(card);
+    apiBusy_->setRange(0, 0);
+    apiBusy_->setTextVisible(false);
+    apiBusy_->setFixedHeight(4);
+    apiBusy_->hide();
+    form->addWidget(apiBusy_);
+
     connect(createHmclChannel_, &QComboBox::currentIndexChanged, this, [this](int) {
         fillVersionCombo(createHmclChannel_, createHmcl_, hmclStable_, hmclPreview_);
+        startApiLoad();
     });
     connect(createAgentChannel_, &QComboBox::currentIndexChanged, this, [this](int) {
         fillVersionCombo(createAgentChannel_, createAgent_, agentStable_, agentPreview_);
+        startApiLoad();
     });
+    connect(createHmcl_, &QComboBox::currentIndexChanged, this, [this](int) { startApiLoad(); });
+    connect(createAgent_, &QComboBox::currentIndexChanged, this, [this](int) { startApiLoad(); });
     connect(hmclRefresh_, &QPushButton::clicked, this, [this]() { startHmclLoad(); });
     connect(hmclStop_, &QPushButton::clicked, this, [this]() { stopHmclLoad(); });
     connect(agentRefresh_, &QPushButton::clicked, this, [this]() { startAgentLoad(); });
     connect(agentStop_, &QPushButton::clicked, this, [this]() { stopAgentLoad(); });
     connect(fabricRefresh_, &QPushButton::clicked, this, [this]() { startFabricLoad(); });
     connect(fabricStop_, &QPushButton::clicked, this, [this]() { stopFabricLoad(); });
+    connect(apiRefresh, &QPushButton::clicked, this, [this]() { startApiLoad(); });
     createIsolated_ = new QCheckBox("隔离 .minecraft 与 .hmcl 到 .launcher/<实例>", card);
     form->addWidget(createIsolated_);
 
@@ -562,6 +605,7 @@ QWidget* MainWindow::buildCreatePage() {
     auto* back = new QPushButton("返回", page);
     auto* start = new QPushButton("开始下载", page);
     start->setObjectName("primary");
+    createStart_ = start;
     buttons->addWidget(back);
     buttons->addStretch();
     buttons->addWidget(start);
@@ -657,6 +701,10 @@ void MainWindow::beginInstall() {
         createError_->setText("名称不能为空");
         return;
     }
+    if (apiBusy_ && apiBusy_->isVisible()) {
+        createError_->setText("正在加载 FLF API 版本列表，请稍候");
+        return;
+    }
     const QString agentSelection = createAgent_ ? createAgent_->currentData().toString() : QString();
     if (problemVersions_.contains(agentSelection)) {
         createError_->setText(QStringLiteral("FLFHMCL %1 存在严重故障，请切换到 2.1.5 或更高版本")
@@ -682,6 +730,7 @@ void MainWindow::beginInstall() {
     instance.hmclVersion = createHmcl_ ? ss(createHmcl_->currentData().toString()) : "";
     instance.isolated = createIsolated_ && createIsolated_->isChecked();
     instance.agentVersion = createAgent_ ? ss(createAgent_->currentData().toString()) : "2.1.6";
+    instance.flfApiVersion = createApi_ ? ss(createApi_->currentData().toString()) : "";
     instance.createdAt = static_cast<std::int64_t>(QDateTime::currentSecsSinceEpoch());
 
     installDetailBars_.clear();
@@ -1093,9 +1142,11 @@ void MainWindow::showUpdateDialog() {
     if (hmclCheck->isChecked() && hmclCombo->currentData().isValid()) {
         updated.hmclVersion = ss(hmclCombo->currentData().toString());
         updated.hmclSha1.clear();
+        updated.flfApiVersion.clear();
     }
     if (agentCheck->isChecked() && agentCombo->currentData().isValid()) {
         updated.agentVersion = ss(agentCombo->currentData().toString());
+        updated.flfApiVersion.clear();
     }
     if (loaderCheck->isChecked() && loaderCombo->currentData().isValid()) {
         updated.loaderVersion = ss(loaderCombo->currentData().toString());
@@ -1401,6 +1452,7 @@ void MainWindow::createInstance() {
     startAgentLoad();
     startHmclLoad();
     startFabricLoad();
+    startApiLoad();
 }
 
 void MainWindow::startAgentLoad() {
@@ -1559,6 +1611,75 @@ void MainWindow::stopFabricLoad() {
         createFabric_->setEnabled(false);
     }
 }
+
+void MainWindow::startApiLoad() {
+    if (!createApi_) return;
+    const int token = ++apiToken_;
+    const QString hmclVersion = createHmcl_ ? createHmcl_->currentData().toString() : QString();
+    const QString agentVersion = createAgent_ ? createAgent_->currentData().toString() : QString();
+
+    createApi_->clear();
+    createApi_->addItem("正在检查适配版本…", "none");
+    createApi_->setEnabled(false);
+    if (apiBusy_) apiBusy_->show();
+    if (createStart_) createStart_->setEnabled(false);
+
+    std::thread([this, token, hmclVersion, agentVersion]() {
+        std::string error;
+        const FlfRelease release = fetchFlfRelease("flfapi", &error);
+        QStringList compatible;
+        for (const auto& version : release.versions) {
+            bool ok = true;
+            if (!version.hmclVersions.empty()) {
+                ok = false;
+                for (const auto& item : version.hmclVersions) {
+                    if (qs(item) == hmclVersion) {
+                        ok = true;
+                        break;
+                    }
+                }
+            }
+            if (ok && !version.flfhmclVersions.empty()) {
+                ok = false;
+                for (const auto& requirement : version.flfhmclVersions) {
+                    if (versionSatisfies(agentVersion, qs(requirement))) {
+                        ok = true;
+                        break;
+                    }
+                }
+            }
+            if (ok) compatible.append(qs(version.version));
+        }
+        QMetaObject::invokeMethod(this, [this, token, compatible, hmclVersion, agentVersion]() {
+            if (token != apiToken_ || !createApi_) return;
+            if (apiBusy_) apiBusy_->hide();
+            if (createStart_) createStart_->setEnabled(true);
+            createApi_->clear();
+            createApi_->addItem("不安装 FLF API", "none");
+            for (const QString& version : compatible) {
+                createApi_->addItem(version, version);
+            }
+            if (!compatible.isEmpty()) createApi_->setCurrentIndex(1);
+            createApi_->setEnabled(true);
+            createApi_->setToolTip(compatible.isEmpty()
+                    ? QStringLiteral("没有适配 HMCL %1 / FLFHMCL %2 的 FLF API")
+                              .arg(hmclVersion, agentVersion)
+                    : QString());
+        }, Qt::QueuedConnection);
+    }).detach();
+}
+
+void MainWindow::stopApiLoad() {
+    ++apiToken_;
+    if (apiBusy_) apiBusy_->hide();
+    if (createStart_) createStart_->setEnabled(true);
+    if (createApi_) {
+        createApi_->clear();
+        createApi_->addItem("不安装 FLF API", "none");
+        createApi_->setEnabled(true);
+    }
+}
+
 void MainWindow::runInstall(const QString& name, bool isolated, const QString& agentVersion) {
     Instance instance;
     instance.uuid = newInstanceUuid();
@@ -1629,7 +1750,7 @@ void MainWindow::launchSelected() {
     if (problem.isEmpty()
             && (agentVersion == "2.1" || agentVersion == "2.1.1"
                 || agentVersion == "2.1.2" || agentVersion == "2.1.3"
-                || agentVersion == "2.1.4")) {
+                || agentVersion == "2.1.4" || agentVersion == "2.1.5")) {
         problem = "该 FLFHMCL 版本存在严重启动/关闭故障，请尽快更新或切换版本。";
     }
     if (!problem.isEmpty()) {

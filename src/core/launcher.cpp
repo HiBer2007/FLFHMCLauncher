@@ -113,7 +113,7 @@ class KnotProvider final : public LaunchProvider {
 public:
     std::string id() const override { return "knot"; }
     bool supports(const Instance& instance) const override {
-        return versionAtLeast(instance.agentVersion, 2, 1, 5);
+        return versionAtLeast(instance.agentVersion, 2, 1, 6);
     }
     void configure(LaunchPlan& plan, const Workspace& workspace,
                    const Instance& instance, bool quickStart) const override {
