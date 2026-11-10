@@ -37,7 +37,7 @@ payload/
   ],
   "files": [
     { "path": "options.txt", "role": "minecraft", "size": 1234, "sha256": "..." },
-    { "path": "HMCL-3.16.4.jar", "role": "runtime",
+    { "path": "hmcl/HMCL-3.16.4.jar", "role": "runtime",
       "target": "hmcl/HMCL-3.16.4.jar", "size": 0, "sha256": "..." }
   ],
   "mods": [
