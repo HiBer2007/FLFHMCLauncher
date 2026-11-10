@@ -20,6 +20,8 @@ class QPropertyAnimation;
 class QComboBox;
 class QLineEdit;
 class QProgressBar;
+class QDragEnterEvent;
+class QDropEvent;
 class QListWidget;
 class QTreeWidget;
 class QToolButton;
@@ -37,6 +39,11 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget* parent = nullptr);
     bool eventFilter(QObject* watched, QEvent* event) override;
+    void importModpackFile(const QString& path);
+
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private slots:
     void refreshInstances();
@@ -87,6 +94,8 @@ private:
     void finishInstall(const Instance& instance, bool ok, const QString& error);
     void applyTheme();
     void showToast(const QString& title, const QString& detail, bool error = false);
+    void importModpackDialog();
+    void exportModpackDialog();
     void runInstall(const QString& name, bool isolated = false, const QString& agentVersion = {});
     void setCurrent(const std::string& id);
     void fadeIn(QWidget* widget);

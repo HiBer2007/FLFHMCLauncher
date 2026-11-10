@@ -20,7 +20,7 @@ option(FLF_BUILD_EXAMPLES "Build examples" OFF)
 # ---------------------------------------------------------------------------
 # 依赖
 # ---------------------------------------------------------------------------
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Concurrent)
 find_package(nlohmann_json CONFIG REQUIRED)
 
 qt_standard_project_setup()
@@ -63,6 +63,7 @@ add_library(FLFLauncherCore STATIC
     src/core/library_table.cpp
     src/core/launcher.cpp
     src/core/mods.cpp
+    src/core/modpack.cpp
     src/core/quickstart_config.cpp
 )
 
@@ -93,14 +94,14 @@ qt_add_executable(FLFHMCLauncher WIN32
 
 qt_add_resources(FLFHMCLauncher "app_resources"
     PREFIX "/"
-    FILES assets/icon/flfhmlauncher-256.png third_party/CrashTracker/CrashTracker.exe
+    FILES assets/icon/flfhmlauncher-256.png assets/modpack/flfhmclpack.ico third_party/CrashTracker/CrashTracker.exe
 )
 
 if(MSVC)
     target_sources(FLFHMCLauncher PRIVATE resources/flfhmlauncher.rc)
 endif()
 
-target_link_libraries(FLFHMCLauncher PRIVATE FLFLauncherCore Qt6::Widgets)
+target_link_libraries(FLFHMCLauncher PRIVATE FLFLauncherCore Qt6::Widgets Qt6::Concurrent)
 
 if(TARGET Qt6::QWindowsIntegrationPlugin)
     qt_import_plugins(FLFHMCLauncher INCLUDE Qt::QWindowsIntegrationPlugin)
@@ -131,6 +132,7 @@ if(FLF_BUILD_QUICKSTART)
 endif()
 
 install(TARGETS FLFHMCLauncher RUNTIME DESTINATION .)
+install(FILES assets/modpack/flfhmclpack.ico DESTINATION . RENAME flfhmclpack.ico)
 if(FLF_BUILD_QUICKSTART)
     install(TARGETS FLFQuickStart RUNTIME DESTINATION .)
 endif()

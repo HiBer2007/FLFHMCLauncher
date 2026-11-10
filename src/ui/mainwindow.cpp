@@ -4,10 +4,16 @@
 #include "core/launcher.h"
 #include "core/meta.h"
 #include "core/mods.h"
+#include "core/modpack.h"
 
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QFutureWatcher>
+#include <QtConcurrent>
 #include <QFile>
 #include <QDateTime>
 #include <QDesktopServices>
@@ -105,6 +111,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("FLFHMCLauncher");
     resize(1080, 720);
     setMinimumSize(900, 600);
+    setAcceptDrops(true);
     dark_ = uiSettings().value("appearance/dark", false).toBool();
     applyTheme();
     buildUi();
@@ -285,6 +292,8 @@ QWidget* MainWindow::buildLaunchPage() {
     addOp("模组管理", [this]() { openMods(); });
     addOp("打开实例目录", [this]() { openFolder(); });
     addOp("创建快速启动器", [this]() { quickStartSelected(); });
+    addOp("导入整合包", [this]() { importModpackDialog(); });
+    addOp("导出当前实例", [this]() { exportModpackDialog(); });
     addOp("更新实例组件", [this]() { showUpdateDialog(); });
     addOp("删除实例", [this]() { deleteInstance(); });
     opLayout->addStretch();
@@ -330,6 +339,127 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     }
     return QMainWindow::eventFilter(watched, event);
 }
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+    if (event->mimeData() && event->mimeData()->hasUrls()) {
+        for (const QUrl& url : event->mimeData()->urls()) {
+            if (url.isLocalFile()
+                    && isModpackFile(fs::u8path(url.toLocalFile().toStdString()))) {
+                event->acceptProposedAction();
+                return;
+            }
+        }
+    }
+    QMainWindow::dragEnterEvent(event);
+}
+
+void MainWindow::dropEvent(QDropEvent* event) {
+    if (event->mimeData() && event->mimeData()->hasUrls()) {
+        for (const QUrl& url : event->mimeData()->urls()) {
+            if (!url.isLocalFile()) continue;
+            const QString path = url.toLocalFile();
+            if (isModpackFile(fs::u8path(path.toStdString()))) {
+                event->acceptProposedAction();
+                importModpackFile(path);
+                return;
+            }
+        }
+    }
+    QMainWindow::dropEvent(event);
+}
+
+void MainWindow::importModpackDialog() {
+    const QString path = QFileDialog::getOpenFileName(
+            this, "导入 FLFHMCL 整合包", QString(),
+            "FLFHMCL 整合包 (*.flfhmclpack);;所有文件 (*)");
+    if (!path.isEmpty()) {
+        importModpackFile(path);
+    }
+}
+
+void MainWindow::importModpackFile(const QString& path) {
+    if (path.isEmpty()) return;
+    const fs::path source = fs::u8path(path.toStdString());
+    if (!isModpackFile(source)) {
+        showToast("导入失败", "不是 .flfhmclpack 文件", true);
+        return;
+    }
+
+    auto* progress = new QProgressDialog("正在导入整合包…", QString(), 0, 0, this);
+    progress->setWindowTitle("FLFHMCL 整合包");
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setCancelButton(nullptr);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    auto* watcher = new QFutureWatcher<ModpackResult>(this);
+    connect(watcher, &QFutureWatcher<ModpackResult>::finished, this,
+            [this, watcher, progress]() {
+        const ModpackResult result = watcher->result();
+        progress->close();
+        progress->deleteLater();
+        watcher->deleteLater();
+        if (!result.ok) {
+            showToast("导入失败", qs(result.error), true);
+            return;
+        }
+        refreshInstances();
+        setCurrent(result.instanceId);
+        showPage(0);
+        showToast("整合包已导入", qs(result.instanceName)
+                  + QStringLiteral(" · %1 个文件").arg(result.fileCount));
+    });
+    watcher->setFuture(QtConcurrent::run([source]() {
+        return importModpack(source);
+    }));
+}
+
+void MainWindow::exportModpackDialog() {
+    Instance* selected = selectedInstance();
+    if (!selected) {
+        showToast("导出失败", "请先选择一个实例", true);
+        return;
+    }
+    const Instance snapshot = *selected;
+    QString suggested = qs(snapshot.name);
+    if (suggested.isEmpty()) suggested = QStringLiteral("instance");
+    suggested += QStringLiteral(".flfhmclpack");
+    QString path = QFileDialog::getSaveFileName(
+            this, "导出 FLFHMCL 整合包", suggested,
+            "FLFHMCL 整合包 (*.flfhmclpack)");
+    if (path.isEmpty()) return;
+    if (!path.endsWith(QStringLiteral(".flfhmclpack"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".flfhmclpack");
+    }
+
+    auto* progress = new QProgressDialog("正在导出整合包…", QString(), 0, 0, this);
+    progress->setWindowTitle("FLFHMCL 整合包");
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setCancelButton(nullptr);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    const fs::path target = fs::u8path(path.toStdString());
+    auto* watcher = new QFutureWatcher<ModpackResult>(this);
+    connect(watcher, &QFutureWatcher<ModpackResult>::finished, this,
+            [this, watcher, progress, target]() {
+        const ModpackResult result = watcher->result();
+        progress->close();
+        progress->deleteLater();
+        watcher->deleteLater();
+        if (!result.ok) {
+            showToast("导出失败", qs(result.error), true);
+            return;
+        }
+        showToast("整合包已导出", QString::fromStdString(target.filename().string())
+                  + QStringLiteral(" · %1 个文件").arg(result.fileCount));
+    });
+    ModpackOptions options;
+    watcher->setFuture(QtConcurrent::run([snapshot, target, options]() {
+        return exportModpack(snapshot, target, options);
+    }));
+}
+
 QWidget* MainWindow::buildSettingsPage() {
     auto* page = new QWidget(this);
     auto* layout = new QVBoxLayout(page);
@@ -1231,6 +1361,8 @@ QWidget* MainWindow::buildManagePage() {
     addOp("模组管理", [this]() { openMods(); });
     addOp("打开实例目录", [this]() { openFolder(); });
     addOp("创建快速启动器", [this]() { quickStartSelected(); });
+    addOp("导入整合包", [this]() { importModpackDialog(); });
+    addOp("导出当前实例", [this]() { exportModpackDialog(); });
     addOp("更新实例组件", [this]() { showUpdateDialog(); });
     addOp("删除实例", [this]() { deleteInstance(); });
     opLayout->addStretch();

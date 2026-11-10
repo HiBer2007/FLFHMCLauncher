@@ -2,6 +2,7 @@
 #include "core/installer.h"
 #include "core/launcher.h"
 #include "core/meta.h"
+#include "core/modpack.h"
 #include "core/workspace.h"
 
 #include <QCoreApplication>
@@ -93,6 +94,36 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (args.size() >= 4 && args[1] == "export-pack") {
+        const flf::Instance* instance = flf::Workspace::get().find(args[2].toStdString());
+        if (!instance) {
+            std::cerr << "instance not found: " << args[2].toStdString() << "\n";
+            return 2;
+        }
+        const auto result = flf::exportModpack(
+                *instance, std::filesystem::u8path(args[3].toStdString()));
+        if (!result.ok) {
+            std::cerr << "export failed: " << result.error << "\n";
+            return 3;
+        }
+        std::cout << "exported " << result.fileCount << " files, "
+                  << result.totalBytes << " bytes\n";
+        return 0;
+    }
+
+    if (args.size() >= 3 && args[1] == "import-pack") {
+        const auto result = flf::importModpack(
+                std::filesystem::u8path(args[2].toStdString()));
+        if (!result.ok) {
+            std::cerr << "import failed: " << result.error << "\n";
+            return 3;
+        }
+        std::cout << "imported instance " << result.instanceId
+                  << " (" << result.instanceName << ") " << result.fileCount
+                  << " files\n";
+        return 0;
+    }
+
     if (args.size() >= 3 && args[1] == "launch") {
         std::string error;
         const flf::Instance* instance = flf::Workspace::get().find(args[2].toStdString());
@@ -120,6 +151,7 @@ int main(int argc, char* argv[]) {
         return exitCode == 0 ? 0 : 4;
     }
 
-    std::cout << "usage: FLFLauncherCli selftest | install <id> <game> [loader] [java] | launch <id>\n";
+    std::cout << "usage: FLFLauncherCli selftest | install <id> <game> [loader] [java] | "
+                 "launch <id> | export-pack <id> <file.flfhmclpack> | import-pack <file.flfhmclpack>\n";
     return 1;
 }

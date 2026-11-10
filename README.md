@@ -5,13 +5,14 @@ FLFHMCL 的**外壳 / 高阶入口**（C++ / 静态 Qt），不是 FLFHMCL 的�
 - FLFHMCL 负责给 HMCL 提供 Fabric 运行时；本启动器负责把运行环境、实例和启动流程包装起来；
 - 提供环境配置、快速启动、版本隔离、共享库缓存等高层能力；
 - 默认打开 GUI 管理实例、安装、更新、模组；
+- 支持 `.flfhmclpack` 整合包：拖拽导入/导出实例的 `.minecraft`、`.hmcl`、模组与运行时元数据；
 - 可为指定实例释放小型快速启动 EXE，双击直接进入游戏；
 - 共享库 / 分层隔离由 mclhr 实现（参考 Lunar Client 的 ichor 思路；<https://github.com/HiBer2007/mclhr>）；
 - 集成日志（CommonLoggerCPP）、崩溃捕获（CrashTrackerHandleLibCPP）、GUI 组件（HiBerGUILibCPP）。
 
 > 即使不使用 FLFHMCLauncher，也可以直接通过 Agent 启动 FLFHMCL；本启动器是可选外壳。
 
-设计、调研与里程碑见 [PLAN.md](PLAN.md)，ichor 调研见 [docs/ICHOR.md](docs/ICHOR.md)。
+设计、调研与里程碑见 [PLAN.md](PLAN.md)，ichor 调研见 [docs/ICHOR.md](docs/ICHOR.md)，整合包格式见 [docs/MODPACK.md](docs/MODPACK.md)。
 
 ## 构建
 
