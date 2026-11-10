@@ -26,6 +26,9 @@ payload/
   "generator": { "name": "FLFHMCLauncher", "version": "0.2.0" },
   "createdAt": 1794281657,
   "name": "整合包名称",
+  "hmclSelection": { "config": true, "state": true, "cache": false,
+                     "logs": false, "sanitizeTokens": true },
+  "includeMinecraftLogs": false,
   "instance": { "id": "...", "name": "...", "gameVersion": "1.21.1",
                 "loader": "fabric", "loaderVersion": "0.19.5",
                 "hmclVersion": "", "agentVersion": "", "javaPath": "",
@@ -61,8 +64,7 @@ payload/
 - **嵌入**：`embedded=true`，jar 在 `payload/mods/` 中，随包分发；
 - **链接**：`embedded=false`，`url` 指向 jar；导入时下载并校验 `sha256`。
 
-当前启动器导出默认嵌入 jar；链接模式由 core API 的 `ModpackOptions::embedMods=false` +
-`modLinks` 提供，适合整合包作者只分发清单、不让 jar 进包。
+导出向导弹出「确认模组」页：每个模组一行，下载链接留空 = 嵌入 jar，填写 URL = 只导出链接。也可以直接下一步，全部按默认嵌入。
 
 ## 3. 使用
 
@@ -78,7 +80,12 @@ payload/
 
 ### 按钮
 
-启动页左侧「导入整合包」/「导出当前实例」。
+启动页左侧「导入整合包」/「导出当前实例」。导出会先进入向导：
+
+1. **选择 .hmcl 内容**：配置 / 状态 / 缓存 / 日志；缓存和日志默认关闭；
+   所有 JSON 会自动移除 `token` / `password` / `secret` / `credential` / `session` 字段；
+   `.minecraft/logs` 与 `crash-reports` 也默认关闭，可单独勾选；
+2. **确认模组**：每个 jar 可填下载 URL；留空嵌入 jar，填了就只写链接。
 
 ### 打开方式
 
@@ -112,6 +119,7 @@ Set-ItemProperty "HKCU:\Software\Classes\FLFHMCLauncher.flfhmclpack\shell\open\c
 - 导入时拒绝绝对路径和 `..` 路径；
 - 不跟随符号链接；
 - 所有文件校验 SHA-256；
-- `.hmcl` 可能包含账户 token / 登录状态，分发前请自行清理；
-- 当前导出会包含选中实例的 `.minecraft` / `.hmcl` 全部内容（包括日志、缓存），大实例会很大；
+- `.hmcl` 中的 token / password / secret / credential / session 字段导出时自动移除；
+- 向导默认不包含 `.hmcl/logs`、`.hmcl/cache`、`.minecraft/logs` 与 `crash-reports`；需要时显式勾选；
+- `.minecraft` 其余内容完整打包；超大实例可自行清理截图、资源缓存等；
 - 整合包不包含 `libraries/` / `java/`；这些由启动器按元数据补齐。

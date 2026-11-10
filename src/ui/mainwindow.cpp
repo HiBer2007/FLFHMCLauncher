@@ -21,8 +21,10 @@
 #include <QDialog>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFormLayout>
 #include <QFrame>
 #include <QGraphicsOpacityEffect>
+#include <QHeaderView>
 #include <QIcon>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -38,7 +40,9 @@
 #include <QPointer>
 #include <QClipboard>
 #include <QApplication>
+#include <QTableWidget>
 #include <QToolButton>
+#include <QTimer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSettings>
@@ -46,6 +50,8 @@
 #include <QStyle>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QWizard>
+#include <QWizardPage>
 
 #include <algorithm>
 #include <thread>
@@ -138,9 +144,14 @@ void MainWindow::applyTheme() {
     const QString input = dark_ ? "#0d141e" : "#ffffff";
     const QString hover = dark_ ? "#223046" : "#eaf2ff";
     const QString qss = QString(R"(
-        QMainWindow, QDialog, QMessageBox, QProgressDialog { background: %1; color: %3; }
+        QMainWindow, QDialog, QMessageBox, QProgressDialog, QWizard, QWizardPage {
+            background: %1; color: %3;
+        }
         QWidget { color: %3; font-family: "Microsoft YaHei", "Segoe UI"; font-size: 13px; }
         QLabel { background: transparent; color: %3; }
+        QWizard QLabel, QWizardPage QLabel { background: transparent; color: %3; }
+        QWizard QLabel#qt_wizard_title { color: %3; font-size: 18px; font-weight: 600; }
+        QWizard QLabel#qt_wizard_subtitle { color: %4; }
         QLabel#title { font-size: 22px; font-weight: 700; }
         QLabel#section { font-size: 16px; font-weight: 600; }
         QLabel#sub, QLabel#hint { color: %4; font-size: 12px; }
@@ -421,6 +432,159 @@ void MainWindow::exportModpackDialog() {
         return;
     }
     const Instance snapshot = *selected;
+    const auto mods = listMods(snapshot);
+
+    QWizard wizard(this);
+    wizard.setWindowTitle("导出 FLFHMCL 整合包");
+    wizard.resize(680, 520);
+    const QString wizardBg = dark_ ? "#18202b" : "#ffffff";
+    const QString wizardText = dark_ ? "#e8eef7" : "#101828";
+    const QString wizardSub = dark_ ? "#a9b8ca" : "#64748b";
+    const QString wizardBorder = dark_ ? "#2b3748" : "#dbe6f5";
+    const QString wizardInput = dark_ ? "#0d141e" : "#f8fbff";
+    auto applyWizardPalette = [&](QWidget* widget) {
+        if (!widget) return;
+        QPalette palette = widget->palette();
+        palette.setColor(QPalette::Window, QColor(wizardBg));
+        palette.setColor(QPalette::Base, QColor(wizardInput));
+        palette.setColor(QPalette::AlternateBase, QColor(wizardBg));
+        palette.setColor(QPalette::WindowText, QColor(wizardText));
+        palette.setColor(QPalette::Text, QColor(wizardText));
+        palette.setColor(QPalette::ButtonText, QColor(wizardText));
+        palette.setColor(QPalette::Button, QColor(wizardBg));
+        palette.setColor(QPalette::Disabled, QPalette::WindowText, QColor(wizardText));
+        palette.setColor(QPalette::Disabled, QPalette::Text, QColor(wizardText));
+        palette.setColor(QPalette::Disabled, QPalette::ButtonText, QColor(wizardText));
+        widget->setPalette(palette);
+        widget->setAutoFillBackground(true);
+    };
+    applyWizardPalette(&wizard);
+    wizard.setWindowModality(Qt::ApplicationModal);
+    wizard.setStyleSheet(QString(R"(
+        QWizard, QWizardPage { background-color: %1; color: %2; }
+        QWizard QWidget { background-color: %1; color: %2; }
+        QWizard QScrollArea, QWizard QScrollArea > QWidget > QWidget,
+        QWizard QStackedWidget, QWizard QStackedWidget > QWidget {
+            background-color: %1; border: none;
+        }
+        QWizard QLabel, QWizardPage QLabel { color: %2; background: transparent; }
+        QWizard QLabel:disabled, QWizardPage QLabel:disabled,
+        QWizard QCheckBox:disabled, QWizard QLineEdit:disabled { color: %2; }
+        QWizard QLabel#qt_wizard_title { color: #ffffff; font-size: 19px; font-weight: 700; }
+        QWizard QLabel#qt_wizard_title:disabled { color: #ffffff; }
+        QWizard QLabel#qt_wizard_subtitle { color: %3; }
+        QWizard QCheckBox { color: %2; spacing: 8px; }
+        QWizard QLineEdit, QWizard QTableWidget {
+            background-color: %4; color: %2; border: 1px solid %5; border-radius: 6px;
+        }
+        QWizard QHeaderView::section {
+            background-color: %1; color: %2; border: none; padding: 6px;
+        }
+        QWizard QPushButton {
+            background-color: %1; color: %2; border: 1px solid %5;
+            border-radius: 7px; padding: 7px 16px;
+        }
+        QWizard QPushButton:hover { background-color: %6; }
+    )").arg(wizardBg, wizardText, wizardSub, wizardInput, wizardBorder,
+            dark_ ? "#223046" : "#eaf2ff"));
+    wizard.setButtonText(QWizard::NextButton, "下一步");
+    wizard.setButtonText(QWizard::FinishButton, "导出");
+
+    // 第 1 页：.hmcl 内容选择。日志/缓存默认不打包，token 自动清理。
+    auto* contentPage = new QWizardPage(&wizard);
+    applyWizardPalette(contentPage);
+    contentPage->setTitle("选择 .hmcl 内容");
+    contentPage->setSubTitle("账户 token / password / secret 会自动移除；日志和缓存默认不包含。");
+    auto* contentLayout = new QVBoxLayout(contentPage);
+    auto* includeHmcl = new QCheckBox("包含 .hmcl 目录", contentPage);
+    includeHmcl->setChecked(true);
+    contentLayout->addWidget(includeHmcl);
+    auto* mcLogs = new QCheckBox("包含 .minecraft/logs 与 crash-reports（默认关闭）", contentPage);
+    mcLogs->setChecked(false);
+    contentLayout->addWidget(mcLogs);
+    auto* config = new QCheckBox("配置 config（账户、下载源、启动器设置）", contentPage);
+    auto* state = new QCheckBox("状态 state（窗口与用户状态）", contentPage);
+    auto* cache = new QCheckBox("缓存 cache（默认关闭）", contentPage);
+    auto* logs = new QCheckBox("日志 logs（默认关闭）", contentPage);
+    config->setChecked(true);
+    state->setChecked(true);
+    cache->setChecked(false);
+    logs->setChecked(false);
+    contentLayout->addWidget(config);
+    contentLayout->addWidget(state);
+    contentLayout->addWidget(cache);
+    contentLayout->addWidget(logs);
+    auto* sanitize = new QLabel("自动清理：accessToken / refreshToken / clientToken / password / secret / session", contentPage);
+    sanitize->setObjectName("hint");
+    sanitize->setWordWrap(true);
+    contentLayout->addWidget(sanitize);
+    auto* autoLogs = new QLabel("日志和缓存不会默认进入整合包，可在上面显式勾选。", contentPage);
+    autoLogs->setObjectName("hint");
+    autoLogs->setWordWrap(true);
+    contentLayout->addWidget(autoLogs);
+    contentLayout->addStretch();
+    wizard.addPage(contentPage);
+
+    // 第 2 页：模组列表。留空 URL = 嵌入 jar；填写 URL = 只导出链接。
+    auto* modPage = new QWizardPage(&wizard);
+    applyWizardPalette(modPage);
+    const QString pageStyle = QStringLiteral("QWizardPage { background-color: %1; color: %2; }")
+            .arg(wizardBg, wizardText);
+    contentPage->setStyleSheet(pageStyle);
+    modPage->setStyleSheet(pageStyle);
+    modPage->setTitle("确认模组");
+    modPage->setSubTitle("留空表示把 jar 放进整合包；填写 URL 表示只记录链接。可以直接下一步。");
+    auto* modLayout = new QVBoxLayout(modPage);
+    auto* modTable = new QTableWidget(mods.size(), 2, modPage);
+    modTable->setHorizontalHeaderLabels({"模组文件", "下载链接（留空=嵌入 jar）"});
+    modTable->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    modTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    modTable->verticalHeader()->setVisible(false);
+    modTable->setSelectionMode(QAbstractItemView::NoSelection);
+    for (int row = 0; row < static_cast<int>(mods.size()); ++row) {
+        auto* name = new QTableWidgetItem(QString::fromStdString(mods[row].fileName));
+        name->setFlags(name->flags() & ~Qt::ItemIsEditable);
+        modTable->setItem(row, 0, name);
+        auto* url = new QLineEdit(modTable);
+        url->setPlaceholderText("https://… 或留空");
+        modTable->setCellWidget(row, 1, url);
+    }
+    if (mods.empty()) {
+        auto* empty = new QLabel("当前实例没有模组，直接下一步即可。", modPage);
+        empty->setObjectName("hint");
+        modLayout->addWidget(empty);
+    }
+    modLayout->addWidget(modTable, 1);
+    wizard.addPage(modPage);
+
+    QTimer::singleShot(0, &wizard, [&wizard]() {
+        wizard.raise();
+        wizard.activateWindow();
+    });
+    for (QWidget* child : wizard.findChildren<QWidget*>()) {
+        applyWizardPalette(child);
+    }
+    if (wizard.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    ModpackOptions options;
+    options.includeHmcl = includeHmcl->isChecked();
+    options.includeMinecraftLogs = mcLogs->isChecked();
+    options.hmcl.config = config->isChecked();
+    options.hmcl.state = state->isChecked();
+    options.hmcl.cache = cache->isChecked();
+    options.hmcl.logs = logs->isChecked();
+    options.hmcl.sanitizeTokens = true;
+    for (int row = 0; row < modTable->rowCount(); ++row) {
+        if (auto* edit = qobject_cast<QLineEdit*>(modTable->cellWidget(row, 1))) {
+            const QString url = edit->text().trimmed();
+            if (!url.isEmpty()) {
+                options.modLinks[mods[row].fileName] = url.toStdString();
+            }
+        }
+    }
+
     QString suggested = qs(snapshot.name);
     if (suggested.isEmpty()) suggested = QStringLiteral("instance");
     suggested += QStringLiteral(".flfhmclpack");
@@ -454,7 +618,6 @@ void MainWindow::exportModpackDialog() {
         showToast("整合包已导出", QString::fromStdString(target.filename().string())
                   + QStringLiteral(" · %1 个文件").arg(result.fileCount));
     });
-    ModpackOptions options;
     watcher->setFuture(QtConcurrent::run([snapshot, target, options]() {
         return exportModpack(snapshot, target, options);
     }));

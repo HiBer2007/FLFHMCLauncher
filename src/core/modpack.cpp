@@ -113,7 +113,7 @@ void addFileEntry(std::vector<ExportEntry>& entries, std::set<std::string>& seen
 
 void collectDirectory(const fs::path& root, const std::string& role,
                       std::vector<ExportEntry>& entries, std::set<std::string>& seen,
-                      std::string* error) {
+                      std::string* error, const ModpackOptions* options = nullptr) {
     std::error_code ec;
     if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) {
         return;
@@ -129,6 +129,12 @@ void collectDirectory(const fs::path& root, const std::string& role,
         if (ec || !safeRelative(relative)) {
             ec.clear();
             continue;
+        }
+        if (role == "minecraft" && options && !options->includeMinecraftLogs) {
+            const std::string first = relative.begin()->string();
+            if (first == "logs" || first == "crash-reports") {
+                continue;
+            }
         }
         const fs::file_status status = fs::symlink_status(source, ec);
         if (ec) {
@@ -226,6 +232,95 @@ void cleanupImported(const Instance& instance) {
     }
 }
 
+bool sensitiveKey(const std::string& key) {
+    std::string lower;
+    lower.reserve(key.size());
+    for (unsigned char c : key) {
+        lower.push_back(static_cast<char>(std::tolower(c)));
+    }
+    return lower.find("token") != std::string::npos
+            || lower.find("password") != std::string::npos
+            || lower.find("secret") != std::string::npos
+            || lower.find("credential") != std::string::npos
+            || lower.find("session") != std::string::npos;
+}
+
+void stripSensitive(nlohmann::json& node) {
+    if (node.is_object()) {
+        for (auto it = node.begin(); it != node.end();) {
+            if (sensitiveKey(it.key())) {
+                it = node.erase(it);
+            } else {
+                stripSensitive(it.value());
+                ++it;
+            }
+        }
+    } else if (node.is_array()) {
+        for (auto& item : node) {
+            stripSensitive(item);
+        }
+    }
+}
+
+void sanitizeJsonFile(const fs::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in) return;
+    try {
+        nlohmann::json json;
+        in >> json;
+        in.close();
+        stripSensitive(json);
+        std::ofstream out(file, std::ios::binary | std::ios::trunc);
+        if (out) out << json.dump(2);
+    } catch (...) {
+        // 不是 JSON 或结构异常：保留原文件
+    }
+}
+
+bool copyHmclFiltered(const fs::path& source, const fs::path& destination,
+                      const HmclSelection& selection, std::string* error) {
+    std::error_code ec;
+    if (!fs::is_directory(source, ec)) {
+        return true;
+    }
+    for (fs::recursive_directory_iterator it(source, fs::directory_options::skip_permission_denied, ec), end;
+         it != end; it.increment(ec)) {
+        if (ec) {
+            ec.clear();
+            continue;
+        }
+        const fs::path relative = fs::relative(it->path(), source, ec);
+        if (ec || !safeRelative(relative)) {
+            ec.clear();
+            continue;
+        }
+        const std::string first = relative.begin()->string();
+        if ((first == "logs" || first == "log") && !selection.logs) continue;
+        if (first == "cache" && !selection.cache) continue;
+        if (first == "config" && !selection.config) continue;
+        if (first == "state" && !selection.state) continue;
+
+        const fs::file_status status = fs::symlink_status(it->path(), ec);
+        if (ec || fs::is_symlink(status)) {
+            ec.clear();
+            continue;
+        }
+        const fs::path target = destination / relative;
+        if (fs::is_directory(status)) {
+            fs::create_directories(target, ec);
+            continue;
+        }
+        if (!fs::is_regular_file(status)) continue;
+        if (!copyInto(it->path(), target, error)) {
+            return false;
+        }
+        if (selection.sanitizeTokens && lowerExtension(target) == ".json") {
+            sanitizeJsonFile(target);
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 bool isModpackFile(const fs::path& path) {
@@ -236,7 +331,8 @@ ModpackResult exportModpack(const Instance& instance, const fs::path& target,
                             const ModpackOptions& options) {
     ModpackResult result;
     QTemporaryDir staging;
-    if (!staging.isValid()) {
+    QTemporaryDir hmclTemp;
+    if (!staging.isValid() || !hmclTemp.isValid()) {
         result.error = "无法创建临时目录";
         return result;
     }
@@ -250,11 +346,19 @@ ModpackResult exportModpack(const Instance& instance, const fs::path& target,
 
     auto addRole = [&](const char* role, const fs::path& source) {
         if (fs::exists(source, ec) && fs::is_directory(source, ec)) {
-            collectDirectory(source, role, entries, seen, &result.error);
+            collectDirectory(source, role, entries, seen, &result.error, &options);
         }
     };
     if (options.includeMinecraft) addRole("minecraft", Workspace::get().resolveMinecraft(instance));
-    if (options.includeHmcl) addRole("hmcl", Workspace::get().resolveHmclHome(instance));
+    if (options.includeHmcl) {
+        const fs::path hmclSource = Workspace::get().resolveHmclHome(instance);
+        const fs::path filtered = fs::path(hmclTemp.path().toStdWString()) / "hmcl";
+        fs::create_directories(filtered, ec);
+        if (!copyHmclFiltered(hmclSource, filtered, options.hmcl, &result.error)) {
+            return result;
+        }
+        addRole("hmcl", filtered);
+    }
     if (options.includeMods) addRole("mods", Workspace::get().resolveMods(instance));
     if (options.includeProfile) addRole("profile", Workspace::get().profileDir(instance));
 
@@ -292,6 +396,14 @@ ModpackResult exportModpack(const Instance& instance, const fs::path& target,
             {"validateBeforeLaunch", Workspace::get().config().validateBeforeLaunch},
             {"checkUpdatesBeforeLaunch", Workspace::get().config().checkUpdatesBeforeLaunch},
         }},
+        {"hmclSelection", {
+            {"config", options.hmcl.config},
+            {"state", options.hmcl.state},
+            {"cache", options.hmcl.cache},
+            {"logs", options.hmcl.logs},
+            {"sanitizeTokens", options.hmcl.sanitizeTokens},
+        }},
+        {"includeMinecraftLogs", options.includeMinecraftLogs},
         {"mods", nlohmann::json::array()},
         {"directories", nlohmann::json::array()},
         {"files", nlohmann::json::array()},
@@ -307,9 +419,11 @@ ModpackResult exportModpack(const Instance& instance, const fs::path& target,
             fs::create_directories(root / archivePath, ec);
             continue;
         }
+        const bool hasLink = options.modLinks.find(entry.source.filename().string())
+                != options.modLinks.end();
         const bool linkOnlyMod = entry.role == "mods"
                 && lowerExtension(entry.source) == ".jar"
-                && !options.embedMods;
+                && (!options.embedMods || hasLink);
         if (!linkOnlyMod) {
             if (result.error.empty() && !copyInto(entry.source, root / archivePath, &result.error)) {
                 return result;
