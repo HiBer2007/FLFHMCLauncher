@@ -98,14 +98,13 @@ FLFHMCLauncher.exe "D:\packs\example.flfhmclpack"
 图标资源：
 
 - `assets/modpack/flfhmclpack.ico`
-- exe 内资源 ID `102`（`resources/flfhmlauncher.rc`）
-- 安装目录下的 `flfhmclpack.ico`
+- 发布版 `FLFHMCLauncher.exe` 内资源 ID `102`（`resources/bootstrap.rc`）
+- 首次运行额外释放到 `.flfhmcl/bin/flfhmclpack.ico`，方便手动关联
 
 可选关联（不执行也能拖拽/按钮导入）：
 
 ```powershell
 $exe = "C:\Path\FLFHMCLauncher.exe"
-$ico = "C:\Path\flfhmclpack.ico"
 New-Item -Path "HKCU:\Software\Classes\.flfhmclpack" -Force | Out-Null
 Set-ItemProperty "HKCU:\Software\Classes\.flfhmclpack" -Name "(Default)" -Value "FLFHMCLauncher.flfhmclpack"
 New-Item -Path "HKCU:\Software\Classes\FLFHMCLauncher.flfhmclpack\DefaultIcon" -Force | Out-Null

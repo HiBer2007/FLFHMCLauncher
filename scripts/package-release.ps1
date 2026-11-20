@@ -18,6 +18,7 @@ $bootstrap = Require-File (Join-Path $BuildDir "FLFHMCLauncherBootstrap.exe")
 $app = Require-File (Join-Path $BuildDir "FLFHMCLauncherApp.exe")
 $quickstart = Require-File (Join-Path $BuildDir "FLFQuickStart.exe")
 $spdlog = Require-File (Join-Path $BuildDir "spdlog.dll")
+$icon = Require-File (Join-Path (Split-Path $PSScriptRoot -Parent) "assets\modpack\flfhmclpack.ico")
 
 # 找 VS 自带的 x64 VC runtime；引导器自身用 /MT，但 GUI 仍是 /MD。
 $crtFiles = @()
@@ -47,6 +48,7 @@ $files = [ordered]@{
     "FLFHMCLauncherApp.exe" = $app
     "FLFQuickStart.exe"     = $quickstart
     "spdlog.dll"            = $spdlog
+    "flfhmclpack.ico"       = $icon
 }
 $appManifest = Join-Path $BuildDir "FLFHMCLauncherApp.exe.manifest"
 if (Test-Path $appManifest -PathType Leaf) {

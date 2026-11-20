@@ -1,2 +1,3 @@
-// 自包含引导器的 EXE 图标。
+// 自包含引导器的 EXE 图标 / 整合包文件图标。
 101 ICON "../assets/icon/flfhmlauncher.ico"
+102 ICON "../assets/modpack/flfhmclpack.ico"
