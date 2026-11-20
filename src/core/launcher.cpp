@@ -2,6 +2,7 @@
 
 #include "core/meta.h"
 #include "core/http.h"
+#include "core/path_util.h"
 #include "core/quickstart_config.h"
 
 #include <QProcess>
@@ -33,6 +34,37 @@ std::string quote(const std::string& value) {
         }
     }
     result += "\"";
+    return result;
+}
+
+std::wstring widenUtf8(const std::string& value) {
+    if (value.empty()) {
+        return {};
+    }
+    const int size = MultiByteToWideChar(CP_UTF8, 0, value.data(),
+                                         static_cast<int>(value.size()), nullptr, 0);
+    if (size <= 0) {
+        return {};
+    }
+    std::wstring result(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                        result.data(), size);
+    return result;
+}
+
+std::wstring quoteWide(const std::wstring& value) {
+    if (value.find(L' ') == std::wstring::npos && value.find(L'\t') == std::wstring::npos) {
+        return value;
+    }
+    std::wstring result = L"\"";
+    for (wchar_t c : value) {
+        if (c == L'"') {
+            result += L"\\\"";
+        } else {
+            result.push_back(c);
+        }
+    }
+    result += L"\"";
     return result;
 }
 
@@ -77,18 +109,18 @@ protected:
                           const Instance& instance, const fs::path& gameDir,
                           const fs::path& hmclHome) {
         plan.arguments.insert(plan.arguments.end(), {
-            "-javaagent:" + workspace.agentJar(instance).string(),
-            "-Dflf.libraries.dir=" + workspace.librariesDir().string(),
-            "-Dflfhmcl.gameDir=" + gameDir.string(),
+            "-javaagent:" + pathUtf8(workspace.agentJar(instance)),
+            "-Dflf.libraries.dir=" + pathUtf8(workspace.librariesDir()),
+            "-Dflfhmcl.gameDir=" + pathUtf8(gameDir),
             "-Dflf.instance=" + instance.id,
             "-Dflf.loader.version=" + instance.loaderVersion,
-            "-Dflf.mclhr.manifest=" + workspace.manifestPath(instance).string(),
-            "-Dflf.profile=" + workspace.profileDir(instance).string(),
+            "-Dflf.mclhr.manifest=" + pathUtf8(workspace.manifestPath(instance)),
+            "-Dflf.profile=" + pathUtf8(workspace.profileDir(instance)),
             "-Dflf.version=" + instance.agentVersion,
-            "-Dflf.home=" + workspace.home().string(),
+            "-Dflf.home=" + pathUtf8(workspace.home()),
             "-Dflfhmcl.update.managed=true",
-            "-Dhmcl.home=" + hmclHome.string(),
-            "-Dhmcl.dir=" + hmclHome.string(),
+            "-Dhmcl.home=" + pathUtf8(hmclHome),
+            "-Dhmcl.dir=" + pathUtf8(hmclHome),
         });
     }
 };
@@ -104,7 +136,7 @@ public:
         const fs::path hmclHome = workspace.resolveHmclHome(instance);
         addCommon(plan, workspace, instance, gameDir, hmclHome);
         plan.arguments.push_back("-jar");
-        plan.arguments.push_back(workspace.hmclJar(instance).string());
+        plan.arguments.push_back(pathUtf8(workspace.hmclJar(instance)));
         if (quickStart) {
             plan.arguments.push_back("--flf-instance=" + instance.id);
         }
@@ -115,7 +147,7 @@ public:
 /// `.flfhmcl/mods/<uuid>` 必须通过 `fabric.addMods` 显式加入，
 /// 否则只有 agent 会被加载，HMCL 的模组一个都不会生效。
 std::string hmclModPaths(const Workspace& workspace, const Instance& instance) {
-    std::string paths = workspace.agentJar(instance).string();
+    std::string paths = pathUtf8(workspace.agentJar(instance));
     const fs::path dir = workspace.resolveMods(instance);
     std::error_code ec;
     std::vector<fs::path> jars;
@@ -133,7 +165,7 @@ std::string hmclModPaths(const Workspace& workspace, const Instance& instance) {
     std::sort(jars.begin(), jars.end());
     for (const auto& jar : jars) {
         paths += ";";
-        paths += jar.string();
+        paths += pathUtf8(jar);
     }
     return paths;
 }
@@ -153,13 +185,13 @@ public:
         plan.arguments.insert(plan.arguments.end(), {
             "-Dflf.knot.direct=true",
             "-Dfabric.addMods=" + hmclModPaths(workspace, instance),
-            "-Dflf.hmcl.jar=" + workspace.hmclJar(instance).string(),
+            "-Dflf.hmcl.jar=" + pathUtf8(workspace.hmclJar(instance)),
             "-cp",
-            workspace.agentJar(instance).string(),
+            pathUtf8(workspace.agentJar(instance)),
             "net.fabricmc.loader.impl.launch.knot.KnotClient",
         });
         plan.arguments.push_back("--gameDir");
-        plan.arguments.push_back(gameDir.string());
+        plan.arguments.push_back(pathUtf8(gameDir));
         plan.arguments.push_back("--hmclMainClass");
         plan.arguments.push_back("org.jackhuang.hmcl.Launcher");
         if (quickStart) {
@@ -347,10 +379,10 @@ bool launchInstance(const Instance& instance, std::string* error, bool quickStar
     const LaunchPlan plan = buildLaunchPlan(instance, quickStart);
     QStringList arguments;
     for (const auto& argument : plan.arguments) {
-        arguments << QString::fromStdString(argument);
+        arguments << QString::fromUtf8(argument.c_str());
     }
     const bool started = QProcess::startDetached(
-            QString::fromStdString(plan.program),
+            QString::fromUtf8(plan.program.c_str()),
             arguments,
             QString::fromStdWString(plan.workingDir.wstring()));
     if (!started && error) {
@@ -364,9 +396,9 @@ bool launchInstanceManaged(const Instance& instance,
                            const std::function<void(int, const std::string&)>& onExit,
                            std::string* error) {
     const LaunchPlan plan = buildLaunchPlan(instance, false);
-    std::string command = quote(plan.program);
+    std::wstring command = quoteWide(widenUtf8(plan.program));
     for (const auto& argument : plan.arguments) {
-        command += " " + quote(argument);
+        command += L" " + quoteWide(widenUtf8(argument));
     }
 
     SECURITY_ATTRIBUTES attributes{};
@@ -380,18 +412,18 @@ bool launchInstanceManaged(const Instance& instance,
     }
     SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
 
-    STARTUPINFOA startup{};
+    STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
     startup.hStdOutput = writePipe;
     startup.hStdError = writePipe;
 
     PROCESS_INFORMATION process{};
-    std::vector<char> buffer(command.begin(), command.end());
-    buffer.push_back('\0');
-    const std::string cwd = plan.workingDir.string();
-    if (!CreateProcessA(nullptr, buffer.data(), nullptr, nullptr, TRUE,
-                        CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW, nullptr, cwd.c_str(),
+    std::wstring commandBuffer = command;
+    const std::wstring cwd = widenUtf8(pathUtf8(plan.workingDir));
+    if (!CreateProcessW(nullptr, commandBuffer.data(), nullptr, nullptr, TRUE,
+                        CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW, nullptr,
+                        cwd.empty() ? nullptr : cwd.c_str(),
                         &startup, &process)) {
         CloseHandle(readPipe);
         CloseHandle(writePipe);
@@ -458,10 +490,10 @@ bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::s
 
     const LaunchPlan plan = buildLaunchPlan(instance, true);
     nlohmann::json json = {
-        {"root", Workspace::get().home().string()},
+        {"root", pathUtf8(Workspace::get().home())},
         {"instance", instance.id},
         {"command", joinCommand(plan)},
-        {"workingDir", plan.workingDir.string()},
+        {"workingDir", pathUtf8(plan.workingDir)},
     };
     std::string embedError;
     if (!appendQuickStartConfig(targetExe, json.dump(2), embedError)) {

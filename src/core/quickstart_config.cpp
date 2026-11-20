@@ -1,5 +1,7 @@
 #include "core/quickstart_config.h"
 
+#include "core/path_util.h"
+
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -90,7 +92,19 @@ bool extractString(const std::string& json, const std::string& key, std::string&
     return false;
 }
 
-bool parseConfig(const std::string& json, QuickStartConfig& out, std::string& error) {
+void replaceAll(std::string& value, const std::string& from, const std::string& to) {
+    if (from.empty() || from == to) {
+        return;
+    }
+    std::size_t pos = 0;
+    while ((pos = value.find(from, pos)) != std::string::npos) {
+        value.replace(pos, from.size(), to);
+        pos += to.size();
+    }
+}
+
+bool parseConfig(const std::string& json, const std::filesystem::path& exePath,
+                 QuickStartConfig& out, std::string& error) {
     std::string root;
     std::string instance;
     if (!extractString(json, "root", root)) {
@@ -102,11 +116,33 @@ bool parseConfig(const std::string& json, QuickStartConfig& out, std::string& er
         return false;
     }
 
-    out.launcherRoot = std::filesystem::path(root);
+    std::error_code ec;
+    std::filesystem::path rootPath = pathFromUtf8(root);
+    if (rootPath.is_relative()) {
+        rootPath = std::filesystem::weakly_canonical(
+                exePath.parent_path() / rootPath, ec);
+        if (ec) {
+            rootPath = exePath.parent_path() / rootPath;
+        }
+    } else {
+        rootPath = rootPath.lexically_normal();
+    }
+    out.launcherRoot = rootPath;
     out.instance = instance;
     extractString(json, "java", out.java);
     extractString(json, "command", out.command);
     extractString(json, "workingDir", out.workingDir);
+
+    // root 是相对路径；command/workingDir 是生成时的绝对路径。
+    // 整个目录搬走后，把旧根目录前缀替换成新的解析结果。
+    std::string baseRoot;
+    if (extractString(json, "baseRoot", baseRoot) && !baseRoot.empty()) {
+        const std::string newRoot = rootPath.string();
+        if (baseRoot != newRoot) {
+            replaceAll(out.command, baseRoot, newRoot);
+            replaceAll(out.workingDir, baseRoot, newRoot);
+        }
+    }
     return true;
 }
 
@@ -187,7 +223,7 @@ bool loadQuickStartConfig(const std::filesystem::path& exePath,
                 + exePath.string();
         return false;
     }
-    return parseConfig(json, out, error);
+    return parseConfig(json, exePath, out, error);
 }
 
 } // namespace flf

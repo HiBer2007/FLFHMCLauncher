@@ -39,7 +39,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
         return 1;
     }
 
-    std::vector<wchar_t> buffer(config.command.begin(), config.command.end());
+    std::wstring commandLine = widen(config.command);
+    std::vector<wchar_t> buffer(commandLine.begin(), commandLine.end());
     buffer.push_back(L'\0');
 
     STARTUPINFOW startup{};
