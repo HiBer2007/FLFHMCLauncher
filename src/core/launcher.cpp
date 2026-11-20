@@ -197,12 +197,20 @@ void repairHmclAcl(const fs::path& directory) {
         return;
     }
     const QString path = QString::fromStdWString(directory.wstring());
-    // 只改目录自身，避免 /T 递归时把大量文件的 DACL 清空；
-    // 显式拒绝项通常来自 .hmcl 目录的继承，移除后 Java 的写入探测即可通过。
+    const QString user = qEnvironmentVariable("USERNAME").trimmed();
+    // 只改目录自身，避免在 UI 线程递归遍历大目录。
+    // 先去掉继承的 deny，再给当前用户显式 FullControl：
+    // HMCL 的 Files.isWritable 会检查 delete-child，Authenticated Users 的
+    // Modify 在这个目录上并不足以通过该检查。
     if (!runIcacls({path, QStringLiteral("/remove:d"), QStringLiteral("Everyone"),
                     QStringLiteral("/C"), QStringLiteral("/Q")})) {
         qWarning("HMCL config ACL repair failed for %s", qPrintable(path));
         return;
+    }
+    if (!user.isEmpty()) {
+        runIcacls({path, QStringLiteral("/grant:r"),
+                   user + QStringLiteral(":(OI)(CI)F"),
+                   QStringLiteral("/T"), QStringLiteral("/C"), QStringLiteral("/Q")});
     }
     runIcacls({path, QStringLiteral("/setintegritylevel"),
                QStringLiteral("M"), QStringLiteral("/C"), QStringLiteral("/Q")});
