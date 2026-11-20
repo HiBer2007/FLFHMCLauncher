@@ -124,6 +124,40 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (args.size() >= 3 && args[1] == "repair") {
+        flf::Instance* instance = flf::Workspace::get().find(args[2].toStdString());
+        if (!instance) {
+            std::cerr << "instance not found: " << args[2].toStdString() << "\n";
+            return 2;
+        }
+        std::string error;
+        const bool ok = flf::repairInstance(*instance, [](const std::string& step, int percent) {
+            std::cout << "[" << percent << "%] " << step << std::endl;
+        }, &error);
+        if (!ok) {
+            std::cerr << "repair failed: " << error << "\n";
+            return 3;
+        }
+        flf::Workspace::get().saveInstances();
+        std::cout << "repaired\n";
+        return 0;
+    }
+
+    if (args.size() >= 3 && args[1] == "validate") {
+        flf::Instance* instance = flf::Workspace::get().find(args[2].toStdString());
+        if (!instance) {
+            std::cerr << "instance not found: " << args[2].toStdString() << "\n";
+            return 2;
+        }
+        std::string error;
+        if (!flf::validateInstanceFiles(*instance, &error)) {
+            std::cerr << "invalid: " << error << "\n";
+            return 3;
+        }
+        std::cout << "valid\n";
+        return 0;
+    }
+
     if (args.size() >= 4 && args[1] == "quickstart") {
         const flf::Instance* instance = flf::Workspace::get().find(args[2].toStdString());
         if (!instance) {
@@ -168,7 +202,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "usage: FLFLauncherCli selftest | install <id> <game> [loader] [java] | "
-                 "launch <id> | quickstart <id> <file.exe> | "
+                 "launch <id> | repair <id> | quickstart <id> <file.exe> | "
                  "export-pack <id> <file.flfhmclpack> | import-pack <file.flfhmclpack>\n";
     return 1;
 }

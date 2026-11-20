@@ -183,13 +183,23 @@ void repairHmclAcl(const fs::path& directory) {
         return;
     }
     const QString path = QString::fromStdWString(directory.wstring());
-    const int code = QProcess::execute(
-            QStringLiteral("icacls"),
-            {path, QStringLiteral("/remove:d"), QStringLiteral("Everyone"),
-             QStringLiteral("/T"), QStringLiteral("/C"), QStringLiteral("/Q")});
-    if (code != 0 || needsHmclAclRepair(directory)) {
+    QProcess process;
+    process.start(QStringLiteral("icacls"),
+                  {path, QStringLiteral("/remove:d"), QStringLiteral("Everyone"),
+                   QStringLiteral("/C"), QStringLiteral("/Q")});
+    if (!process.waitForStarted(2000)) {
+        qWarning("HMCL config ACL repair could not start icacls for %s", qPrintable(path));
+        return;
+    }
+    if (!process.waitForFinished(10000)) {
+        process.kill();
+        process.waitForFinished(1000);
+        qWarning("HMCL config ACL repair timed out for %s", qPrintable(path));
+        return;
+    }
+    if (process.exitCode() != 0 || needsHmclAclRepair(directory)) {
         qWarning("HMCL config ACL repair failed for %s (icacls exit %d)",
-                 qPrintable(path), code);
+                 qPrintable(path), process.exitCode());
     }
 }
 
@@ -228,14 +238,6 @@ bool validateInstanceFiles(const Instance& instance, std::string* error) {
         return fail("Java 路径不存在");
     }
     const Workspace& workspace = Workspace::get();
-    const fs::path hmclHome = workspace.resolveHmclHome(instance);
-    if (fs::is_directory(hmclHome)) {
-        repairHmclAcl(hmclHome);
-        if (needsHmclAclRepair(hmclHome)) {
-            return fail("HMCL 配置目录不可写（ACL 异常）。请把实例移到本地可写目录，"
-                        "或手动修复 .hmcl 的权限后重试。");
-        }
-    }
     if (!fs::exists(workspace.agentJar(instance))) return fail("FLFHMCL Agent 不存在");
     if (!fs::exists(workspace.hmclJar(instance))) return fail("HMCL jar 不存在");
     if (!instance.hmclSha1.empty()
