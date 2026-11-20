@@ -11,6 +11,7 @@
 #include <QCoreApplication>
 #include <QComboBox>
 #include <QDragEnterEvent>
+#include <QDragMoveEvent>
 #include <QDropEvent>
 #include <QMimeData>
 #include <QFutureWatcher>
@@ -84,6 +85,20 @@ QString quickStartFileName(const QString& instanceName) {
     }
     if (name.isEmpty()) name = QStringLiteral("instance");
     return QStringLiteral("launch-") + name + QStringLiteral(".exe");
+}
+
+/// 从拖拽数据中取出本地 .jar 文件；非 jar 忽略。
+QStringList jarFilesFromMime(const QMimeData* mime) {
+    QStringList files;
+    if (!mime || !mime->hasUrls()) return files;
+    for (const QUrl& url : mime->urls()) {
+        if (!url.isLocalFile()) continue;
+        const QString path = url.toLocalFile();
+        if (path.endsWith(QStringLiteral(".jar"), Qt::CaseInsensitive)) {
+            files.push_back(path);
+        }
+    }
+    return files;
 }
 
 /// 比较点分版本，返回 <0 / 0 / >0。
@@ -359,6 +374,31 @@ QWidget* MainWindow::buildLaunchPage() {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    const bool modsTarget = watched == modsPage_
+            || (modsList_ && (watched == modsList_ || watched == modsList_->viewport()));
+    if (modsTarget && modsPage_ && pages_ && pages_->currentWidget() == modsPage_) {
+        if (event->type() == QEvent::DragEnter) {
+            auto* drag = static_cast<QDragEnterEvent*>(event);
+            if (!jarFilesFromMime(drag->mimeData()).isEmpty()) {
+                drag->acceptProposedAction();
+                return true;
+            }
+        } else if (event->type() == QEvent::DragMove) {
+            auto* drag = static_cast<QDragMoveEvent*>(event);
+            if (!jarFilesFromMime(drag->mimeData()).isEmpty()) {
+                drag->acceptProposedAction();
+                return true;
+            }
+        } else if (event->type() == QEvent::Drop) {
+            auto* drop = static_cast<QDropEvent*>(event);
+            const QStringList files = jarFilesFromMime(drop->mimeData());
+            if (!files.isEmpty()) {
+                drop->acceptProposedAction();
+                importModFiles(files);
+                return true;
+            }
+        }
+    }
     if (event->type() == QEvent::MouseButtonRelease) {
         const QString id = watched->property("instanceId").toString();
         if (!id.isEmpty()) {
@@ -369,6 +409,11 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+    const bool modsPage = pages_ && pages_->currentWidget() == modsPage_;
+    if (modsPage && !jarFilesFromMime(event->mimeData()).isEmpty()) {
+        event->acceptProposedAction();
+        return;
+    }
     if (event->mimeData() && event->mimeData()->hasUrls()) {
         for (const QUrl& url : event->mimeData()->urls()) {
             if (url.isLocalFile()
@@ -382,6 +427,15 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
 }
 
 void MainWindow::dropEvent(QDropEvent* event) {
+    const bool modsPage = pages_ && pages_->currentWidget() == modsPage_;
+    if (modsPage) {
+        const QStringList files = jarFilesFromMime(event->mimeData());
+        if (!files.isEmpty()) {
+            event->acceptProposedAction();
+            importModFiles(files);
+            return;
+        }
+    }
     if (event->mimeData() && event->mimeData()->hasUrls()) {
         for (const QUrl& url : event->mimeData()->urls()) {
             if (!url.isLocalFile()) continue;
@@ -1578,9 +1632,18 @@ QWidget* MainWindow::buildModsPage() {
     modsTitle_ = new QLabel("模组管理", page);
     modsTitle_->setObjectName("title");
     layout->addWidget(modsTitle_);
+    auto* hint = new QLabel("支持一次选择多个模组，或直接把多个 .jar 拖入列表。", page);
+    hint->setObjectName("hint");
+    layout->addWidget(hint);
 
     modsList_ = new QListWidget(page);
+    modsList_->setAcceptDrops(true);
+    modsList_->installEventFilter(this);
+    modsList_->viewport()->setAcceptDrops(true);
+    modsList_->viewport()->installEventFilter(this);
     layout->addWidget(modsList_, 1);
+    page->setAcceptDrops(true);
+    page->installEventFilter(this);
 
     auto* row = new QHBoxLayout();
     auto* importButton = new QPushButton("导入模组", page);
@@ -1593,21 +1656,12 @@ QWidget* MainWindow::buildModsPage() {
     layout->addLayout(row);
 
     connect(importButton, &QPushButton::clicked, this, [this]() {
-        Instance* instance = selectedInstance();
-        if (!instance) {
+        if (!selectedInstance()) {
             return;
         }
-        const QString file = QFileDialog::getOpenFileName(this, "选择模组", {}, "Mods (*.jar)");
-        if (file.isEmpty()) {
-            return;
-        }
-        std::string error;
-        if (!importMod(*instance, std::filesystem::path(file.toStdWString()), &error)) {
-            showToast("导入失败", qs(error), true);
-            return;
-        }
-        refreshMods();
-        showToast("已导入模组", QFileInfo(file).fileName(), false);
+        const QStringList files = QFileDialog::getOpenFileNames(
+                this, "选择模组", {}, "Mods (*.jar)");
+        importModFiles(files);
     });
     connect(deleteButton, &QPushButton::clicked, this, [this]() {
         auto* item = modsList_ ? modsList_->currentItem() : nullptr;
@@ -2221,18 +2275,33 @@ void MainWindow::launchSelected() {
                         openButton = box.addButton("打开报告", QMessageBox::ActionRole);
                     }
                     box.addButton("关闭", QMessageBox::RejectRole);
+
+                    // ActionRole 按钮不会自动结束 QMessageBox::exec()；
+                    // 必须在 exec() 之前连接，否则“打开报告/复制诊断”看起来没反应。
+                    connect(copyButton, &QPushButton::clicked, &box,
+                            [this, &box, allText, cause, code, reportPath]() {
+                        QApplication::clipboard()->setText(
+                                QStringLiteral("%1\n退出代码：%2\n\n%3\n\n报告：%4")
+                                        .arg(cause).arg(code).arg(allText).arg(reportPath));
+                        showToast("诊断已复制", "可以粘贴到反馈中", false);
+                        box.accept();
+                    });
+                    if (openButton) {
+                        connect(openButton, &QPushButton::clicked, &box,
+                                [this, &box, reportPath]() {
+                            const bool opened = QDesktopServices::openUrl(
+                                    QUrl::fromLocalFile(reportPath));
+                            if (!opened) {
+                                showToast("打开报告失败", reportPath, true);
+                            }
+                            box.accept();
+                        });
+                    }
                     box.exec();
                     if (box.clickedButton() == repairButton) {
                         if (Instance* target = Workspace::get().find(ss(uuid))) {
                             beginRepair(*target);
                         }
-                    } else if (box.clickedButton() == copyButton) {
-                        QApplication::clipboard()->setText(
-                                QStringLiteral("%1\n退出代码：%2\n\n%3\n\n报告：%4")
-                                        .arg(cause).arg(code).arg(allText).arg(reportPath));
-                        showToast("诊断已复制", "可以粘贴到反馈中", false);
-                    } else if (openButton != nullptr && box.clickedButton() == openButton) {
-                        QDesktopServices::openUrl(QUrl::fromLocalFile(reportPath));
                     }
                     showToast("HMCL 异常退出", cause, true);
                 }, Qt::QueuedConnection);
@@ -2276,6 +2345,32 @@ void MainWindow::quickStartSelected() {
     }
     showToast("快速启动器已生成",
               QFileInfo(path).fileName() + QStringLiteral(" · 可直接运行"), false);
+}
+
+void MainWindow::importModFiles(const QStringList& files) {
+    Instance* instance = selectedInstance();
+    if (!instance || files.isEmpty()) {
+        return;
+    }
+    QStringList imported;
+    QStringList failed;
+    for (const QString& file : files) {
+        std::string error;
+        if (importMod(*instance, std::filesystem::path(file.toStdWString()), &error)) {
+            imported.push_back(QFileInfo(file).fileName());
+        } else {
+            failed.push_back(QFileInfo(file).fileName() + QStringLiteral(": ") + qs(error));
+        }
+    }
+    if (!imported.isEmpty()) {
+        refreshMods();
+        showToast(QStringLiteral("已导入 %1 个模组").arg(imported.size()),
+                  imported.join(QStringLiteral("、")), false);
+    }
+    if (!failed.isEmpty()) {
+        showToast(QStringLiteral("%1 个模组导入失败").arg(failed.size()),
+                  failed.join(QLatin1Char('\n')), true);
+    }
 }
 
 void MainWindow::openMods() {

@@ -82,7 +82,7 @@ FLFHMCLauncher 将实现 **ichor 风格的共享库与模块装配**，即 **mcl
 | 创建实例 | 向导：选版本 → 选加载器 → Java（扫描/下载）→ JavaFX → Fabric → HMCL/Agent → 生成实例 |
 | 更新由 FLFHMCLauncher 接管 | 启动器检查 HMCL/FLFHMCL 更新并下载替换；HMCL 侧传 `-Dflfhmcl.update.managed=true` 关闭自更新 |
 | 更新提示 | 启动器 GUI 内提示（有更新/更新中/失败重试） |
-| 模组管理 | 实例级 mods 启用/禁用、导入、从共享库引用；`.minecraft/mods` 可为共享/私有 |
+| 模组管理 | 实例级 mods 启用/禁用、批量选择/拖拽导入、从共享库引用；`.minecraft/mods` 可为共享/私有 |
 | 实例隔离（细分） | 见 §4：按 Java/JavaFX/Fabric/HMCL/库/mods/.minecraft/.hmcl 分层配置 |
 | FLFHMCL 支持 | agent 增加 ichor 库解析、`--flf-launch`、受管更新开关、实例上下文 |
 

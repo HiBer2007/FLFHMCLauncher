@@ -96,6 +96,7 @@ private:
     void showToast(const QString& title, const QString& detail, bool error = false);
     void importModpackDialog();
     void exportModpackDialog();
+    void importModFiles(const QStringList& files);
     void runInstall(const QString& name, bool isolated = false, const QString& agentVersion = {});
     void setCurrent(const std::string& id);
     void fadeIn(QWidget* widget);

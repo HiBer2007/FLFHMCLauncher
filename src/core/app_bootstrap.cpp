@@ -18,7 +18,7 @@ void bootstrap() {
     HiBerCTM::InstallCrashHandler(root.string());
     HiBerCTM::SetCrashAppName("FLFHMCLauncher");
     HiBerCTM::SetCrashHelpText(
-        "请把 crash-report 目录打包反馈到 FLFHMCL 仓库 Issues，并附上 launcher.log。");
+        "Please attach this crash-report directory and launcher.log when filing an issue at the FLFHMCL repository.");
     HiBerCTM::InstallCrtReportHook();
 }
 
