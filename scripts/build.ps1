@@ -1,8 +1,8 @@
 param(
-    [string]$QtRoot = "H:/Qt-static-rt/6.11.1/msvc2022_64",
+    [string]$QtRoot = "H:/Qt-static/6.11.1/msvc2022_64",
     [string]$VcpkgRoot = "H:/vcpkg",
     [string]$BuildDir = "build",
-    [string]$Triplet = "x64-windows-static",
+    [string]$Triplet = "x64-windows",
     [string]$VcVars = "F:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
 )
 
@@ -12,3 +12,5 @@ cmd /c "`"$VcVars`" >nul && cmake -B $BuildDir -S . -G Ninja -DCMAKE_BUILD_TYPE=
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
 cmd /c "`"$VcVars`" >nul && cmake --build $BuildDir --config Release"
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
+cmd /c "`"$VcVars`" >nul && cmake --build $BuildDir --target package-release"
+if ($LASTEXITCODE -ne 0) { throw "self-contained package failed" }

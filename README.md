@@ -17,20 +17,31 @@ FLFHMCL 的**外壳 / 高阶入口**（C++ / 静态 Qt），不是 FLFHMCL 的�
 ## 构建
 
 ```powershell
+pwsh -NoProfile -File scripts\build.ps1
+```
+
+`scripts/build.ps1` 会构建 GUI、快速启动器，并调用 `package-release` 生成自包含的
+`build/FLFHMCLauncher.exe`：
+
+- 发布版只有一个 EXE，**不需要随包放 spdlog / VC++ runtime**；
+- 首次运行把 GUI、`FLFQuickStart.exe`、spdlog 和 VC runtime 释放到
+  `<启动器目录>/.flfhmcl/bin`，之后再启动 GUI；
+- 引导器本身使用 `/MT`，只依赖 Windows 系统 DLL。
+
+手动构建：
+
+```powershell
 call "F:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat"
 
 cmake -B build -S . -G Ninja `
   -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_PREFIX_PATH="H:/Qt-static-rt/6.11.1/msvc2022_64" `
+  -DCMAKE_PREFIX_PATH="H:/Qt-static/6.11.1/msvc2022_64" `
   -DCMAKE_TOOLCHAIN_FILE="H:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
-  -DVCPKG_TARGET_TRIPLET=x64-windows-static
+  -DVCPKG_TARGET_TRIPLET=x64-windows
 
 cmake --build build --config Release
+cmake --build build --target package-release
 ```
-
-> 当前 vcpkg 仅安装 `x64-windows`（动态 CRT）。要么安装 `x64-windows-static`
-> 三元组的 `spdlog` / `nlohmann-json` / `webview2` 并使用 `Qt-static-rt`（`/MT`），
-> 要么改用 `H:\Qt-static`（`/MD`）+ `x64-windows`。
 
 ## 子模块
 

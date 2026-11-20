@@ -21,7 +21,17 @@ std::filesystem::path modulePath() {
 } // namespace
 
 std::filesystem::path executableDirectory() {
-    static const std::filesystem::path directory = modulePath().parent_path();
+    static const std::filesystem::path directory = [] {
+        // 自包含发布版把真正的 GUI 放在 .flfhmcl/bin，由引导器把外层目录传下来。
+        std::array<wchar_t, 32768> buffer{};
+        const DWORD length = GetEnvironmentVariableW(
+                L"FLFHMCL_LAUNCHER_DIR", buffer.data(),
+                static_cast<DWORD>(buffer.size()));
+        if (length > 0 && length < buffer.size()) {
+            return std::filesystem::path(std::wstring(buffer.data(), length));
+        }
+        return modulePath().parent_path();
+    }();
     return directory;
 }
 
@@ -37,6 +47,7 @@ std::filesystem::path ensureLayout() {
     const std::filesystem::path root = flfHome();
 
     const wchar_t* directories[] = {
+        L"bin",
         L"config",
         L"libraries",
         L"java",

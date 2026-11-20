@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(FLFHMCLauncher VERSION 0.3.0 LANGUAGES CXX)
+project(FLFHMCLauncher VERSION 0.3.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,31 +86,45 @@ endif()
 # ---------------------------------------------------------------------------
 # GUI launcher
 # ---------------------------------------------------------------------------
-qt_add_executable(FLFHMCLauncher WIN32
+qt_add_executable(FLFHMCLauncherApp WIN32
     src/main.cpp
     src/ui/mainwindow.cpp
     src/ui/mainwindow.h
 )
 
-qt_add_resources(FLFHMCLauncher "app_resources"
+qt_add_resources(FLFHMCLauncherApp "app_resources"
     PREFIX "/"
     FILES assets/icon/flfhmlauncher-256.png assets/modpack/flfhmclpack.ico assets/modpack/flfhmclpack-256.png third_party/CrashTracker/CrashTracker.exe
 )
 
 if(MSVC)
-    target_sources(FLFHMCLauncher PRIVATE resources/flfhmlauncher.rc)
+    target_sources(FLFHMCLauncherApp PRIVATE resources/flfhmlauncher.rc)
 endif()
 
-target_link_libraries(FLFHMCLauncher PRIVATE FLFLauncherCore Qt6::Widgets Qt6::Concurrent)
+target_link_libraries(FLFHMCLauncherApp PRIVATE FLFLauncherCore Qt6::Widgets Qt6::Concurrent)
 
 if(TARGET Qt6::QWindowsIntegrationPlugin)
-    qt_import_plugins(FLFHMCLauncher INCLUDE Qt::QWindowsIntegrationPlugin)
+    qt_import_plugins(FLFHMCLauncherApp INCLUDE Qt::QWindowsIntegrationPlugin)
 endif()
 
-set_target_properties(FLFHMCLauncher PROPERTIES
-    OUTPUT_NAME "FLFHMCLauncher"
+set_target_properties(FLFHMCLauncherApp PROPERTIES
+    OUTPUT_NAME "FLFHMCLauncherApp"
     WIN32_EXECUTABLE TRUE
 )
+
+# ---------------------------------------------------------------------------
+# 自包含引导器：发布版唯一的 FLFHMCLauncher.exe。
+# 它把 FLFHMCLauncherApp.exe / spdlog / MSVC runtime 放在自身尾部，
+# 首次运行释放到 .flfhmcl/bin，再启动真正的 GUI。
+# ---------------------------------------------------------------------------
+add_executable(FLFHMCLauncher WIN32 src/bootstrap_main.cpp)
+if(MSVC)
+    target_sources(FLFHMCLauncher PRIVATE resources/bootstrap.rc)
+    set_target_properties(FLFHMCLauncher PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
+endif()
+target_link_libraries(FLFHMCLauncher PRIVATE shell32)
+set_target_properties(FLFHMCLauncher PROPERTIES OUTPUT_NAME "FLFHMCLauncherBootstrap")
+add_dependencies(FLFHMCLauncher FLFHMCLauncherApp)
 
 # ---------------------------------------------------------------------------
 # CLI（自测 / 无界面安装）
@@ -130,12 +144,20 @@ if(FLF_BUILD_QUICKSTART)
     target_link_libraries(FLFQuickStart PRIVATE shell32)
     if(MSVC)
         target_sources(FLFQuickStart PRIVATE resources/quickstart.rc)
+        set_target_properties(FLFQuickStart PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
     endif()
     set_target_properties(FLFQuickStart PROPERTIES OUTPUT_NAME "FLFQuickStart")
 endif()
 
-install(TARGETS FLFHMCLauncher RUNTIME DESTINATION .)
+# 发布打包：把 app / quickstart / DLL 追加进引导器，生成单文件 EXE。
+add_custom_target(package-release
+    COMMAND pwsh -NoProfile -ExecutionPolicy Bypass
+            -File ${CMAKE_SOURCE_DIR}/scripts/package-release.ps1
+            -BuildDir ${CMAKE_BINARY_DIR}
+    DEPENDS FLFHMCLauncher FLFHMCLauncherApp FLFQuickStart
+    COMMENT "Packing self-contained FLFHMCLauncher.exe"
+)
+
+install(FILES "${CMAKE_BINARY_DIR}/FLFHMCLauncher.exe" DESTINATION .)
 install(FILES assets/modpack/flfhmclpack.ico DESTINATION . RENAME flfhmclpack.ico)
-if(FLF_BUILD_QUICKSTART)
-    install(TARGETS FLFQuickStart RUNTIME DESTINATION .)
-endif()
+

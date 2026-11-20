@@ -353,7 +353,10 @@ bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::s
             ? targetExe.parent_path() : fs::current_path();
     fs::create_directories(directory, ec);
 
-    const fs::path source = Workspace::get().launcherDir() / "FLFQuickStart.exe";
+    fs::path source = Workspace::get().home() / "bin" / "FLFQuickStart.exe";
+    if (!fs::exists(source)) {
+        source = Workspace::get().launcherDir() / "FLFQuickStart.exe";
+    }
     if (source != targetExe) {
         fs::copy_file(source, targetExe, fs::copy_options::overwrite_existing, ec);
         if (ec) {

@@ -62,8 +62,9 @@ FLFHMCLauncher 将实现 **ichor 风格的共享库与模块装配**，即 **mcl
 | CMake | 4.4.3 |
 | vcpkg | `H:\vcpkg`，当前仅有 `x64-windows`（spdlog、nlohmann-json 已装；**webview2 未装**） |
 
-> 自包含目标优先 `Qt-static-rt`（`/MT`）。vcpkg 依赖需补 `x64-windows-static` 三元组
-> （`spdlog`、`nlohmann-json`、`webview2`），否则与 `/MT` 混链会 CRT 冲突。
+> 自包含发布版由 `/MT` 引导器 + 内嵌 `/MD` GUI 组成：引导器首次运行把 GUI、
+> spdlog 与 VC runtime 释放到 `.flfhmcl/bin`，因此不再要求系统预装 VC++ runtime。
+> `Qt-static-rt` + `x64-windows-static` 的完全静态构建仍是可选优化。
 
 ---
 
@@ -74,7 +75,7 @@ FLFHMCLauncher 将实现 **ichor 风格的共享库与模块装配**，即 **mcl
 | C++ + 静态 Qt | Qt 6.11.1 static，MSVC 2022 x64；`Qt-static-rt` 优先 |
 | 子模块引入三个库 | `third_party/HiBerGUILibCPP`、`CommonLoggerCPP`、`CrashTrackerHandleLibCPP` |
 | CrashTracker 自动拉取最新 Release | 启动时访问 GitHub `releases/latest`，下载 `CrashTracker.exe` 到 `.flfhmcl/tools/`，并用硬链接放到 EXE 同目录（库按同目录查找） |
-| 自包含、首次运行释放 | 首次运行创建 `.flfhmcl/` 全量目录；所有配置/库/缓存都在其中；EXE 目录只放启动器与 CrashTracker 硬链接 |
+| 自包含、首次运行释放 | 发布版单个 `FLFHMCLauncher.exe`；首次运行把 GUI、快速启动器、spdlog 与 VC runtime 释放到 `.flfhmcl/bin`；配置/库/缓存仍都在 `.flfhmcl/` |
 | 共享库（ichor 风格） | `.flfhmcl/libraries/<group>_<artifact>_<version>[_classifier].jar` + 实例清单引用；FLFHMCL agent 解析共享路径 |
 | 默认非快速启动 | `FLFHMCLauncher.exe` 打开 GUI，可配置/安装/管理实例 |
 | 快速启动小 EXE | 每个实例可"释放快速启动器"：生成 `FLFQuickStart-<id>.exe` + 同目录 `quickstart.json`，直接组装启动 |
@@ -325,7 +326,7 @@ cmake --build build --config Release
 | 问题 | 影响 | 处理 |
 |------|------|------|
 | ~~`CommonLoggerCPP` 模板 API 与 spdlog 2.x 不兼容~~ | 已修复 | 已改为 `fmt_lib::vformat` 运行期格式化并推送 `895a918` |
-| vcpkg 当前只有 `x64-windows`（动态 CRT） | 与 `Qt-static-rt`（`/MT`）混链会 CRT 冲突；spdlog 以 DLL 形式部署 | 安装 `x64-windows-static` 的 `spdlog`/`nlohmann-json`/`webview2`，改用 `Qt-static-rt` |
+| vcpkg 当前只有 `x64-windows`（动态 CRT） | GUI 仍依赖 VC runtime / spdlog | 发布版由 `/MT` 引导器内嵌并在首次运行释放到 `.flfhmcl/bin` |
 | vcpkg 未安装 `webview2` | `HiBerGUIWebView2` 暂不构建 | `FLF_ENABLE_WEBVIEW2=OFF`（默认），需要时安装后开启 |
 | 快速启动 EXE 目前只弹窗显示配置 | M4 前不可真正启动 | M4 接入 LaunchAssembler |
 | 仓库尚未配置远端 | 无法 push | 建 GitHub 仓库后 `git remote add origin ...` |
