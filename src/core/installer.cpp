@@ -720,9 +720,28 @@ bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& p
         }
     }
 
-    const fs::path beside = Workspace::get().launcherDir() / "CrashTracker.exe";
+    // CrashTrackerHandleLib 从“当前 GUI 进程所在目录”找 CrashTracker.exe。
+    // 发布版 GUI 位于 .flfhmcl/bin，因此这里做硬链接（不复制文件内容）；
+    // 启动器根目录不再放任何 CrashTracker 副本。
+    const fs::path bin = Workspace::get().home() / "bin";
+    const fs::path beside = bin / "CrashTracker.exe";
     std::error_code ec;
-    fs::copy_file(tool, beside, fs::copy_options::overwrite_existing, ec);
-    return true;
+    fs::create_directories(bin, ec);
+    fs::remove(beside, ec);
+    ec.clear();
+    fs::create_hard_link(tool, beside, ec);
+    if (ec) {
+        // 极少数文件系统不支持硬链接时退回复制，仍只放在 .flfhmcl/bin。
+        ec.clear();
+        fs::copy_file(tool, beside, fs::copy_options::overwrite_existing, ec);
+    }
+
+    // 清理旧版本放在启动器根目录的副本（只删除哈希匹配的工具副本）。
+    const fs::path legacy = Workspace::get().launcherDir() / "CrashTracker.exe";
+    if (valid(legacy)) {
+        std::error_code removeError;
+        fs::remove(legacy, removeError);
+    }
+    return !ec;
 }
 } // namespace flf

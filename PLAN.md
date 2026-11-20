@@ -74,7 +74,7 @@ FLFHMCLauncher 将实现 **ichor 风格的共享库与模块装配**，即 **mcl
 |------|------|
 | C++ + 静态 Qt | Qt 6.11.1 static，MSVC 2022 x64；`Qt-static-rt` 优先 |
 | 子模块引入三个库 | `third_party/HiBerGUILibCPP`、`CommonLoggerCPP`、`CrashTrackerHandleLibCPP` |
-| CrashTracker 自动拉取最新 Release | 启动时访问 GitHub `releases/latest`，下载 `CrashTracker.exe` 到 `.flfhmcl/tools/`，并用硬链接放到 EXE 同目录（库按同目录查找） |
+| CrashTracker 自动拉取最新 Release | 启动时从 GitHub `releases/latest` 下载 `CrashTracker.exe` 到 `.flfhmcl/tools/CrashTracker/`；`.flfhmcl/bin` 保留硬链接供崩溃处理器查找，启动器根目录不放副本 |
 | 自包含、首次运行释放 | 发布版单个 `FLFHMCLauncher.exe`；首次运行把 GUI、快速启动器、spdlog 与 VC runtime 释放到 `.flfhmcl/bin`；配置/库/缓存仍都在 `.flfhmcl/` |
 | 共享库（ichor 风格） | `.flfhmcl/libraries/<group>_<artifact>_<version>[_classifier].jar` + 实例清单引用；FLFHMCL agent 解析共享路径 |
 | 默认非快速启动 | `FLFHMCLauncher.exe` 打开 GUI，可配置/安装/管理实例 |

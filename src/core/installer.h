@@ -22,7 +22,8 @@ bool installInstance(Instance& instance, const ProgressFn& progress, std::string
 bool repairInstanceMetadata(Instance& instance, std::string* error);
 bool repairInstance(Instance& instance, const ProgressFn& progress, std::string* error);
 
-/// 首次运行释放 CrashTracker.exe（GitHub 最新 Release），并放到启动器同目录。
+/// 首次运行释放 CrashTracker.exe 到 .flfhmcl/tools/CrashTracker；
+/// 在 .flfhmcl/bin 建立硬链接供崩溃处理器查找，启动器根目录不留副本。
 bool ensureCrashTracker(const std::function<bool(std::int64_t, std::int64_t)>& progress,
                         std::string* error);
 

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(FLFHMCLauncher VERSION 0.3.2 LANGUAGES CXX)
+project(FLFHMCLauncher VERSION 0.3.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -102,6 +102,9 @@ if(MSVC)
 endif()
 
 target_link_libraries(FLFHMCLauncherApp PRIVATE FLFLauncherCore Qt6::Widgets Qt6::Concurrent)
+target_compile_definitions(FLFHMCLauncherApp PRIVATE
+    FLF_LAUNCHER_VERSION="${PROJECT_VERSION}"
+)
 
 if(TARGET Qt6::QWindowsIntegrationPlugin)
     qt_import_plugins(FLFHMCLauncherApp INCLUDE Qt::QWindowsIntegrationPlugin)

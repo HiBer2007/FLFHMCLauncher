@@ -16,7 +16,11 @@ int main(int argc, char* argv[]) {
 
     QApplication app(argc, argv);
     QApplication::setApplicationName("FLFHMCLauncher");
-    QApplication::setApplicationVersion("0.2.0");
+#ifdef FLF_LAUNCHER_VERSION
+    QApplication::setApplicationVersion(QStringLiteral(FLF_LAUNCHER_VERSION));
+#else
+    QApplication::setApplicationVersion("0.0.0");
+#endif
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/assets/icon/flfhmlauncher-256.png")));
 
     flf::Workspace::get().initialize();
