@@ -383,7 +383,7 @@ ModpackResult exportModpack(const Instance& instance, const fs::path& target,
     nlohmann::json manifest = {
         {"format", kFormat},
         {"schema", kSchema},
-        {"generator", {{"name", "FLFHMCLauncher"}, {"version", "0.3.5"}}},
+        {"generator", {{"name", "FLFHMCLauncher"}, {"version", "0.3.6"}}},
         {"createdAt", std::chrono::duration_cast<std::chrono::seconds>(
                           std::chrono::system_clock::now().time_since_epoch()).count()},
         {"name", instance.name},

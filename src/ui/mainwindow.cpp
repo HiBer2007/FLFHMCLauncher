@@ -2260,7 +2260,15 @@ void MainWindow::launchSelected() {
                     }
                     QString cause;
                     QString advice;
-                    if (allText.contains("Configuration hasn't been loaded")
+                    const bool aclIssue = allText.contains("Selected repository cannot be null")
+                            || allText.contains("SambaException")
+                            || allText.contains("fatal.samba")
+                            || allText.contains("config_loading_failure");
+                    if (aclIssue) {
+                        cause = "HMCL 配置目录权限异常（ACL/Samba）";
+                        advice = "这不是 mclhr 清单问题。请修复实例 .hmcl 目录的写入权限，"
+                                 "不要把该错误交给“重建 mclhr 清单”。";
+                    } else if (allText.contains("Configuration hasn't been loaded")
                             && allText.contains("AnimationUtils")) {
                         cause = "HMCL 关闭动画初始化失败";
                         advice = "这是 FLFHMCL 关闭阶段的 JavaFX 初始化异常。请更新到 FLFHMCL 2.1.5 或更高版本。";
@@ -2291,7 +2299,10 @@ void MainWindow::launchSelected() {
                     box.setText(cause);
                     box.setInformativeText(QStringLiteral("%1\n\n退出代码：%2\n\n%3")
                             .arg(advice).arg(failed && code == 0 ? 1 : code).arg(summary));
-                    auto* repairButton = box.addButton("修复实例", QMessageBox::AcceptRole);
+                    QPushButton* repairButton = nullptr;
+                    if (!aclIssue) {
+                        repairButton = box.addButton("修复实例", QMessageBox::AcceptRole);
+                    }
                     auto* copyButton = box.addButton("复制诊断", QMessageBox::ActionRole);
                     QPushButton* openButton = nullptr;
                     if (!reportPath.isEmpty()) {

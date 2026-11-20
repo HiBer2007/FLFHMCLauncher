@@ -178,28 +178,36 @@ bool needsHmclAclRepair(const fs::path& directory) {
     return GetLastError() == ERROR_ACCESS_DENIED;
 }
 
+bool runIcacls(const QStringList& arguments, int timeoutMs = 20000) {
+    QProcess process;
+    process.start(QStringLiteral("icacls"), arguments);
+    if (!process.waitForStarted(2000)) {
+        return false;
+    }
+    if (!process.waitForFinished(timeoutMs)) {
+        process.kill();
+        process.waitForFinished(1000);
+        return false;
+    }
+    return process.exitCode() == 0;
+}
+
 void repairHmclAcl(const fs::path& directory) {
     if (!needsHmclAclRepair(directory)) {
         return;
     }
     const QString path = QString::fromStdWString(directory.wstring());
-    QProcess process;
-    process.start(QStringLiteral("icacls"),
-                  {path, QStringLiteral("/remove:d"), QStringLiteral("Everyone"),
-                   QStringLiteral("/C"), QStringLiteral("/Q")});
-    if (!process.waitForStarted(2000)) {
-        qWarning("HMCL config ACL repair could not start icacls for %s", qPrintable(path));
+    // 只改目录自身，避免 /T 递归时把大量文件的 DACL 清空；
+    // 显式拒绝项通常来自 .hmcl 目录的继承，移除后 Java 的写入探测即可通过。
+    if (!runIcacls({path, QStringLiteral("/remove:d"), QStringLiteral("Everyone"),
+                    QStringLiteral("/C"), QStringLiteral("/Q")})) {
+        qWarning("HMCL config ACL repair failed for %s", qPrintable(path));
         return;
     }
-    if (!process.waitForFinished(10000)) {
-        process.kill();
-        process.waitForFinished(1000);
-        qWarning("HMCL config ACL repair timed out for %s", qPrintable(path));
-        return;
-    }
-    if (process.exitCode() != 0 || needsHmclAclRepair(directory)) {
-        qWarning("HMCL config ACL repair failed for %s (icacls exit %d)",
-                 qPrintable(path), process.exitCode());
+    runIcacls({path, QStringLiteral("/setintegritylevel"),
+               QStringLiteral("M"), QStringLiteral("/C"), QStringLiteral("/Q")});
+    if (needsHmclAclRepair(directory)) {
+        qWarning("HMCL config ACL is still not writable: %s", qPrintable(path));
     }
 }
 
