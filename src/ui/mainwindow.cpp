@@ -8,6 +8,7 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QCoreApplication>
 #include <QComboBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -68,6 +69,22 @@ QSettings uiSettings() {
 }
 QString qs(const std::string& v) { return QString::fromUtf8(v); }
 std::string ss(const QString& v) { return v.toUtf8().toStdString(); }
+
+/// 快速启动器默认文件名：launch + 实例名；去掉 Windows 非法字符。
+QString quickStartFileName(const QString& instanceName) {
+    QString name = instanceName.trimmed();
+    const QString invalid = QStringLiteral("<>:\"/\\|?*");
+    for (QChar& c : name) {
+        if (c.unicode() < 0x20 || invalid.contains(c)) {
+            c = QLatin1Char('_');
+        }
+    }
+    while (!name.isEmpty() && (name.endsWith(QLatin1Char('.')) || name.endsWith(QLatin1Char(' ')))) {
+        name.chop(1);
+    }
+    if (name.isEmpty()) name = QStringLiteral("instance");
+    return QStringLiteral("launch") + name + QStringLiteral(".exe");
+}
 
 /// 比较点分版本，返回 <0 / 0 / >0。
 int compareVersion(const QString& left, const QString& right) {
@@ -2243,14 +2260,22 @@ void MainWindow::launchSelected() {
 void MainWindow::quickStartSelected() {
     Instance* instance = selectedInstance();
     if (!instance) { showToast("还没有选择实例", "请先选择实例", true); return; }
-    const QString dir = QFileDialog::getExistingDirectory(this, "选择快速启动器输出目录");
-    if (dir.isEmpty()) return;
+    const QString suggested = QDir(QCoreApplication::applicationDirPath())
+            .filePath(quickStartFileName(qs(instance->name)));
+    QString path = QFileDialog::getSaveFileName(
+            this, "保存快速启动器", suggested,
+            "Windows 可执行文件 (*.exe)");
+    if (path.isEmpty()) return;
+    if (!path.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
+        path += QStringLiteral(".exe");
+    }
     std::string error;
-    if (!writeQuickStart(*instance, std::filesystem::path(dir.toStdWString()), &error)) {
+    if (!writeQuickStart(*instance, std::filesystem::path(path.toStdWString()), &error)) {
         showToast("生成失败", qs(error), true);
         return;
     }
-    showToast("快速启动器已生成", "可直接用 FLFQuickStart.exe 启动", false);
+    showToast("快速启动器已生成",
+              QFileInfo(path).fileName() + QStringLiteral(" · 可直接运行"), false);
 }
 
 void MainWindow::openMods() {

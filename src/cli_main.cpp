@@ -124,6 +124,22 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
+    if (args.size() >= 4 && args[1] == "quickstart") {
+        const flf::Instance* instance = flf::Workspace::get().find(args[2].toStdString());
+        if (!instance) {
+            std::cerr << "instance not found: " << args[2].toStdString() << "\n";
+            return 2;
+        }
+        std::string error;
+        if (!flf::writeQuickStart(*instance,
+                std::filesystem::u8path(args[3].toStdString()), &error)) {
+            std::cerr << "quickstart failed: " << error << "\n";
+            return 3;
+        }
+        std::cout << "quickstart written: " << args[3].toStdString() << "\n";
+        return 0;
+    }
+
     if (args.size() >= 3 && args[1] == "launch") {
         std::string error;
         const flf::Instance* instance = flf::Workspace::get().find(args[2].toStdString());
@@ -152,6 +168,7 @@ int main(int argc, char* argv[]) {
     }
 
     std::cout << "usage: FLFLauncherCli selftest | install <id> <game> [loader] [java] | "
-                 "launch <id> | export-pack <id> <file.flfhmclpack> | import-pack <file.flfhmclpack>\n";
+                 "launch <id> | quickstart <id> <file.exe> | "
+                 "export-pack <id> <file.flfhmclpack> | import-pack <file.flfhmclpack>\n";
     return 1;
 }

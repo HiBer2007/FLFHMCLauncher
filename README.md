@@ -6,7 +6,7 @@ FLFHMCL 的**外壳 / 高阶入口**（C++ / 静态 Qt），不是 FLFHMCL 的�
 - 提供环境配置、快速启动、版本隔离、共享库缓存等高层能力；
 - 默认打开 GUI 管理实例、安装、更新、模组；
 - 支持 `.flfhmclpack` 整合包：拖拽导入/导出实例的 `.minecraft`、`.hmcl`、模组与运行时元数据；
-- 可为指定实例释放小型快速启动 EXE，双击直接进入游戏；
+- 可为指定实例导出带图标的快速启动 EXE：默认名 `launch<实例名>.exe`，保存时可改名、选择保存位置；
 - 共享库 / 分层隔离由 mclhr 实现（参考 Lunar Client 的 ichor 思路；<https://github.com/HiBer2007/mclhr>）；
 - 集成日志（CommonLoggerCPP）、崩溃捕获（CrashTrackerHandleLibCPP）、GUI 组件（HiBerGUILibCPP）。
 

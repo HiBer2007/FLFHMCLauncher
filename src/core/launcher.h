@@ -28,7 +28,8 @@ bool launchInstanceManaged(const Instance& instance,
                            const std::function<void(int, const std::string&)>& onExit,
                            std::string* error);
 
-/// 释放快速启动器：复制 FLFQuickStart.exe + quickstart.json 到 outDir。
-bool writeQuickStart(const Instance& instance, const fs::path& outDir, std::string* error);
+/// 释放快速启动器：把 FLFQuickStart.exe 复制为 targetExe（允许改名），
+/// 并在其同目录写入 quickstart.json。
+bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::string* error);
 
 } // namespace flf

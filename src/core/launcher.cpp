@@ -343,14 +343,19 @@ bool launchInstanceManaged(const Instance& instance,
     }).detach();
     return true;
 }
-bool writeQuickStart(const Instance& instance, const fs::path& outDir, std::string* error) {
+bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::string* error) {
+    if (targetExe.filename().empty()) {
+        if (error) *error = "快速启动器文件名不能为空";
+        return false;
+    }
     std::error_code ec;
-    fs::create_directories(outDir, ec);
+    const fs::path directory = targetExe.has_parent_path()
+            ? targetExe.parent_path() : fs::current_path();
+    fs::create_directories(directory, ec);
 
     const fs::path source = Workspace::get().launcherDir() / "FLFQuickStart.exe";
-    const fs::path target = outDir / "FLFQuickStart.exe";
-    if (source != target) {
-        fs::copy_file(source, target, fs::copy_options::overwrite_existing, ec);
+    if (source != targetExe) {
+        fs::copy_file(source, targetExe, fs::copy_options::overwrite_existing, ec);
         if (ec) {
             if (error) *error = "复制 FLFQuickStart.exe 失败: " + ec.message();
             return false;
@@ -364,7 +369,7 @@ bool writeQuickStart(const Instance& instance, const fs::path& outDir, std::stri
         {"command", joinCommand(plan)},
         {"workingDir", plan.workingDir.string()},
     };
-    std::ofstream out(outDir / "quickstart.json", std::ios::binary | std::ios::trunc);
+    std::ofstream out(directory / "quickstart.json", std::ios::binary | std::ios::trunc);
     out << json.dump(2);
     if (!out.good()) {
         if (error) *error = "写入 quickstart.json 失败";
