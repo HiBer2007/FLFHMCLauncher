@@ -2,6 +2,7 @@
 
 #include "core/meta.h"
 #include "core/http.h"
+#include "core/quickstart_config.h"
 
 #include <QProcess>
 
@@ -462,10 +463,9 @@ bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::s
         {"command", joinCommand(plan)},
         {"workingDir", plan.workingDir.string()},
     };
-    std::ofstream out(directory / "quickstart.json", std::ios::binary | std::ios::trunc);
-    out << json.dump(2);
-    if (!out.good()) {
-        if (error) *error = "写入 quickstart.json 失败";
+    std::string embedError;
+    if (!appendQuickStartConfig(targetExe, json.dump(2), embedError)) {
+        if (error) *error = embedError;
         return false;
     }
     return true;

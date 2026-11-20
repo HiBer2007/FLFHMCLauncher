@@ -24,21 +24,16 @@ std::wstring widen(const std::string& value) {
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     wchar_t exePath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    std::wstring exeDir(exePath);
-    const auto slash = exeDir.find_last_of(L'\\');
-    if (slash != std::wstring::npos) {
-        exeDir.resize(slash);
-    }
 
     flf::QuickStartConfig config;
     std::string error;
-    if (!flf::loadQuickStartConfig(std::filesystem::path(exeDir), config, error)) {
+    if (!flf::loadQuickStartConfig(std::filesystem::path(exePath), config, error)) {
         MessageBoxW(nullptr, widen(error).c_str(), L"FLFQuickStart", MB_ICONERROR);
         return 1;
     }
 
     if (config.command.empty()) {
-        const std::wstring message = L"quickstart.json 缺少 command：\n\n实例: "
+        const std::wstring message = L"快速启动配置缺少 command：\n\n实例: "
                 + widen(config.instance);
         MessageBoxW(nullptr, message.c_str(), L"FLFQuickStart", MB_ICONERROR);
         return 1;
