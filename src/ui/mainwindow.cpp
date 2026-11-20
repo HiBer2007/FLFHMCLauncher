@@ -37,6 +37,7 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QProgressBar>
+#include <QProcess>
 #include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QPointer>
@@ -54,6 +55,12 @@
 #include <QVBoxLayout>
 #include <QWizard>
 #include <QWizardPage>
+
+#ifdef Q_OS_WIN
+#define NOMINMAX
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 #include <algorithm>
 #include <thread>
@@ -99,6 +106,22 @@ QStringList jarFilesFromMime(const QMimeData* mime) {
         }
     }
     return files;
+}
+
+/// 在资源管理器中打开报告所在文件夹并选中报告。
+bool openLocalFolder(const QString& filePath) {
+#ifdef Q_OS_WIN
+    const std::wstring params = L"/select,\"" + filePath.toStdWString() + L"\"";
+    const HINSTANCE result = ShellExecuteW(
+            nullptr, L"open", L"explorer.exe", params.c_str(),
+            nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(result) > 32) {
+        return true;
+    }
+#endif
+    return QProcess::startDetached(
+            QStringLiteral("explorer.exe"),
+            {QDir::toNativeSeparators(filePath)});
 }
 
 /// 比较点分版本，返回 <0 / 0 / >0。
@@ -2272,7 +2295,7 @@ void MainWindow::launchSelected() {
                     auto* copyButton = box.addButton("复制诊断", QMessageBox::ActionRole);
                     QPushButton* openButton = nullptr;
                     if (!reportPath.isEmpty()) {
-                        openButton = box.addButton("打开报告", QMessageBox::ActionRole);
+                        openButton = box.addButton("打开报告文件夹", QMessageBox::ActionRole);
                     }
                     box.addButton("关闭", QMessageBox::RejectRole);
 
@@ -2289,10 +2312,9 @@ void MainWindow::launchSelected() {
                     if (openButton) {
                         connect(openButton, &QPushButton::clicked, &box,
                                 [this, &box, reportPath]() {
-                            const bool opened = QDesktopServices::openUrl(
-                                    QUrl::fromLocalFile(reportPath));
-                            if (!opened) {
-                                showToast("打开报告失败", reportPath, true);
+                            if (!openLocalFolder(reportPath)) {
+                                showToast("打开报告文件夹失败",
+                                          QFileInfo(reportPath).absolutePath(), true);
                             }
                             box.accept();
                         });

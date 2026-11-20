@@ -159,6 +159,40 @@ const LaunchProvider& providerFor(const Instance& instance) {
 
 } // namespace
 
+/// HMCL 3.16.x 用 Files.isWritable 判断配置目录，Windows 上遇到
+/// “Everyone 拒绝删除子项”的继承 ACL 会误判为 Samba 共享并跳过初始化。
+/// 这里用文件系统访问检查模拟该判断，必要时移除继承的 Everyone 拒绝项。
+bool needsHmclAclRepair(const fs::path& directory) {
+    HANDLE handle = CreateFileW(
+            directory.c_str(),
+            FILE_ADD_FILE | FILE_DELETE_CHILD,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS,
+            nullptr);
+    if (handle != INVALID_HANDLE_VALUE) {
+        CloseHandle(handle);
+        return false;
+    }
+    return GetLastError() == ERROR_ACCESS_DENIED;
+}
+
+void repairHmclAcl(const fs::path& directory) {
+    if (!needsHmclAclRepair(directory)) {
+        return;
+    }
+    const QString path = QString::fromStdWString(directory.wstring());
+    const int code = QProcess::execute(
+            QStringLiteral("icacls"),
+            {path, QStringLiteral("/remove:d"), QStringLiteral("Everyone"),
+             QStringLiteral("/T"), QStringLiteral("/C"), QStringLiteral("/Q")});
+    if (code != 0 || needsHmclAclRepair(directory)) {
+        qWarning("HMCL config ACL repair failed for %s (icacls exit %d)",
+                 qPrintable(path), code);
+    }
+}
+
 LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
     LaunchPlan plan;
     if (!instance.javaPath.empty()) {
@@ -176,6 +210,7 @@ LaunchPlan buildLaunchPlan(const Instance& instance, bool quickStart) {
     std::error_code ec;
     fs::create_directories(gameDir, ec);
     fs::create_directories(hmclHome, ec);
+    repairHmclAcl(hmclHome);
     plan.workingDir = gameDir.parent_path();
 
     const LaunchProvider& provider = providerFor(instance);
@@ -193,6 +228,14 @@ bool validateInstanceFiles(const Instance& instance, std::string* error) {
         return fail("Java 路径不存在");
     }
     const Workspace& workspace = Workspace::get();
+    const fs::path hmclHome = workspace.resolveHmclHome(instance);
+    if (fs::is_directory(hmclHome)) {
+        repairHmclAcl(hmclHome);
+        if (needsHmclAclRepair(hmclHome)) {
+            return fail("HMCL 配置目录不可写（ACL 异常）。请把实例移到本地可写目录，"
+                        "或手动修复 .hmcl 的权限后重试。");
+        }
+    }
     if (!fs::exists(workspace.agentJar(instance))) return fail("FLFHMCL Agent 不存在");
     if (!fs::exists(workspace.hmclJar(instance))) return fail("HMCL jar 不存在");
     if (!instance.hmclSha1.empty()
