@@ -70,7 +70,7 @@ QSettings uiSettings() {
 QString qs(const std::string& v) { return QString::fromUtf8(v); }
 std::string ss(const QString& v) { return v.toUtf8().toStdString(); }
 
-/// 快速启动器默认文件名：launch + 实例名；去掉 Windows 非法字符。
+/// 快速启动器默认文件名：launch-<实例名>；去掉 Windows 非法字符。
 QString quickStartFileName(const QString& instanceName) {
     QString name = instanceName.trimmed();
     const QString invalid = QStringLiteral("<>:\"/\\|?*");
@@ -83,7 +83,7 @@ QString quickStartFileName(const QString& instanceName) {
         name.chop(1);
     }
     if (name.isEmpty()) name = QStringLiteral("instance");
-    return QStringLiteral("launch") + name + QStringLiteral(".exe");
+    return QStringLiteral("launch-") + name + QStringLiteral(".exe");
 }
 
 /// 比较点分版本，返回 <0 / 0 / >0。
