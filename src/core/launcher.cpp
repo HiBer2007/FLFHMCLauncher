@@ -6,12 +6,14 @@
 #include <QProcess>
 
 #include <windows.h>
+#include <algorithm>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <thread>
 #include <sstream>
 #include <set>
+#include <vector>
 #include <fstream>
 
 namespace flf {
@@ -108,6 +110,33 @@ public:
     }
 };
 
+/// 收集本实例的 FLF/HMCL 模组。HMCL 由 Fabric Knot 托管，私有模组目录
+/// `.flfhmcl/mods/<uuid>` 必须通过 `fabric.addMods` 显式加入，
+/// 否则只有 agent 会被加载，HMCL 的模组一个都不会生效。
+std::string hmclModPaths(const Workspace& workspace, const Instance& instance) {
+    std::string paths = workspace.agentJar(instance).string();
+    const fs::path dir = workspace.resolveMods(instance);
+    std::error_code ec;
+    std::vector<fs::path> jars;
+    if (fs::is_directory(dir, ec)) {
+        for (const auto& entry : fs::directory_iterator(dir, ec)) {
+            if (!entry.is_regular_file(ec)) {
+                continue;
+            }
+            const fs::path path = entry.path();
+            if (path.extension() == ".jar") {
+                jars.push_back(path);
+            }
+        }
+    }
+    std::sort(jars.begin(), jars.end());
+    for (const auto& jar : jars) {
+        paths += ";";
+        paths += jar.string();
+    }
+    return paths;
+}
+
 /// 新版 FLFHMCL（>= 2.1.5）：直接启动 KnotClient，HMCL 由 Fabric 加载。
 class KnotProvider final : public LaunchProvider {
 public:
@@ -122,7 +151,7 @@ public:
         addCommon(plan, workspace, instance, gameDir, hmclHome);
         plan.arguments.insert(plan.arguments.end(), {
             "-Dflf.knot.direct=true",
-            "-Dfabric.addMods=" + workspace.agentJar(instance).string(),
+            "-Dfabric.addMods=" + hmclModPaths(workspace, instance),
             "-Dflf.hmcl.jar=" + workspace.hmclJar(instance).string(),
             "-cp",
             workspace.agentJar(instance).string(),
