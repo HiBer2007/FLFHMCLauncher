@@ -48,6 +48,18 @@ bool writeJson(const fs::path& file, const nlohmann::json& json) {
     return out.good();
 }
 
+/// 旧版本号 -> 新四段命名（FLFAPI主.次.FLFHMCL大.HMCL次级）。
+std::string migrateFlfApiVersion(std::string version) {
+    if (version.empty() || version == "none") {
+        return version;
+    }
+    if (version == "1.1") return "1.1.2.16";
+    if (version == "1.2.0-hmcl3.14") return "1.2.2.14";
+    if (version == "1.2.0-hmcl3.15") return "1.2.2.15";
+    if (version == "1.2.0-hmcl3.16") return "1.2.2.16";
+    return version;
+}
+
 } // namespace
 
 std::string newInstanceUuid() {
@@ -96,7 +108,7 @@ Instance instanceFromJson(const nlohmann::json& json) {
     instance.agentVersion = json.value("agentVersion", "");
     instance.hmclVersion = json.value("hmclVersion", "");
     instance.hmclSha1 = json.value("hmclSha1", "");
-    instance.flfApiVersion = json.value("flfApiVersion", "");
+    instance.flfApiVersion = migrateFlfApiVersion(json.value("flfApiVersion", ""));
     instance.id = json.value("id", "");
     instance.name = json.value("name", instance.id);
     instance.gameVersion = json.value("gameVersion", "");
