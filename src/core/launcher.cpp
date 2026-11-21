@@ -466,7 +466,8 @@ bool launchInstanceManaged(const Instance& instance,
     }).detach();
     return true;
 }
-bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::string* error) {
+bool writeQuickStart(const Instance& instance, const fs::path& targetExe,
+                     std::string* error, const QuickStartOptions& options) {
     if (targetExe.filename().empty()) {
         if (error) *error = "快速启动器文件名不能为空";
         return false;
@@ -494,6 +495,8 @@ bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::s
         {"instance", instance.id},
         {"command", joinCommand(plan)},
         {"workingDir", pathUtf8(plan.workingDir)},
+        {"checkUpdates", options.checkUpdates},
+        {"updateComponents", options.updateComponents},
     };
     std::string embedError;
     if (!appendQuickStartConfig(targetExe, json.dump(2), embedError)) {

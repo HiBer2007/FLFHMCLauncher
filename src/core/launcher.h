@@ -28,8 +28,16 @@ bool launchInstanceManaged(const Instance& instance,
                            const std::function<void(int, const std::string&)>& onExit,
                            std::string* error);
 
+struct QuickStartOptions {
+    bool checkUpdates = true;
+    std::vector<std::string> updateComponents = {
+        "hmcl", "flfapi", "agent", "fabric", "launcher"
+    };
+};
+
 /// 释放快速启动器：把 FLFQuickStart.exe 复制为 targetExe（允许改名），
 /// 并把配置直接追加到 EXE 内部，不再生成同目录 quickstart.json。
-bool writeQuickStart(const Instance& instance, const fs::path& targetExe, std::string* error);
+bool writeQuickStart(const Instance& instance, const fs::path& targetExe,
+                     std::string* error, const QuickStartOptions& options = {});
 
 } // namespace flf

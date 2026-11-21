@@ -34,6 +34,9 @@ struct Instance {
     Layer hmclHome;
     bool validateBeforeLaunch = true;
     bool checkUpdatesBeforeLaunch = true;
+    std::vector<std::string> updateComponents = {
+        "hmcl", "flfapi", "agent", "fabric", "launcher"
+    };
     std::string manifestSha256;
     bool isolated = false;       // true: .launcher/<uuid>/.minecraft + .hmcl
     std::string launchBehavior;  // "" = 继承全局；keep / hide / exit

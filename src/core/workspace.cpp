@@ -82,6 +82,7 @@ nlohmann::json toJson(const Instance& instance) {
         {"hmclHome", layerToJson(instance.hmclHome)},
         {"validateBeforeLaunch", instance.validateBeforeLaunch},
         {"checkUpdatesBeforeLaunch", instance.checkUpdatesBeforeLaunch},
+        {"updateComponents", instance.updateComponents},
         {"manifestSha256", instance.manifestSha256},
         {"isolated", instance.isolated},
         {"launchBehavior", instance.launchBehavior},
@@ -104,6 +105,17 @@ Instance instanceFromJson(const nlohmann::json& json) {
     instance.javaPath = json.value("javaPath", "");
     instance.validateBeforeLaunch = json.value("validateBeforeLaunch", true);
     instance.checkUpdatesBeforeLaunch = json.value("checkUpdatesBeforeLaunch", true);
+    if (json.contains("updateComponents") && json["updateComponents"].is_array()) {
+        instance.updateComponents.clear();
+        for (const auto& component : json["updateComponents"]) {
+            if (component.is_string()) {
+                instance.updateComponents.push_back(component.get<std::string>());
+            }
+        }
+        if (instance.updateComponents.empty()) {
+            instance.updateComponents = {"hmcl", "flfapi", "agent", "fabric", "launcher"};
+        }
+    }
     instance.manifestSha256 = json.value("manifestSha256", "");
     instance.isolated = json.value("isolated", false);
     instance.launchBehavior = json.value("launchBehavior", "");

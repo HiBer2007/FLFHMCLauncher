@@ -3,6 +3,7 @@
 #include "core/installer.h"
 #include "core/launcher.h"
 #include "core/meta.h"
+#include "core/http.h"
 #include "core/mods.h"
 #include "core/modpack.h"
 
@@ -77,6 +78,68 @@ QSettings uiSettings() {
 }
 QString qs(const std::string& v) { return QString::fromUtf8(v); }
 std::string ss(const QString& v) { return v.toUtf8().toStdString(); }
+
+bool updateComponentEnabled(const Instance& instance, const char* id) {
+    return std::find(instance.updateComponents.begin(), instance.updateComponents.end(),
+                     std::string(id)) != instance.updateComponents.end();
+}
+
+QStringList checkComponentUpdates(const Instance& instance) {
+    QStringList updates;
+    std::string error;
+
+    if (updateComponentEnabled(instance, "hmcl")) {
+        const HmclRelease latest = fetchHmclRelease(&error);
+        if (latest.ok && !latest.version.empty()
+                && latest.version != instance.hmclVersion) {
+            updates << QStringLiteral("HMCL %1 → %2")
+                    .arg(qs(instance.hmclVersion), qs(latest.version));
+        }
+    }
+    if (updateComponentEnabled(instance, "flfapi")) {
+        const FlfRelease latest = fetchFlfRelease("flfapi", &error);
+        if (latest.ok && !latest.version.empty()
+                && latest.version != instance.flfApiVersion) {
+            updates << QStringLiteral("FLF API %1 → %2")
+                    .arg(qs(instance.flfApiVersion), qs(latest.version));
+        }
+    }
+    if (updateComponentEnabled(instance, "agent")) {
+        const FlfRelease latest = fetchFlfRelease("flfhmcl", &error);
+        if (latest.ok && !latest.version.empty()
+                && latest.version != instance.agentVersion) {
+            updates << QStringLiteral("Agent %1 → %2")
+                    .arg(qs(instance.agentVersion), qs(latest.version));
+        }
+    }
+    if (updateComponentEnabled(instance, "fabric")) {
+        const auto loaders = fetchFabricLoaders(instance.gameVersion, &error);
+        if (!loaders.empty() && loaders.front() != instance.loaderVersion) {
+            updates << QStringLiteral("Fabric Loader %1 → %2")
+                    .arg(qs(instance.loaderVersion), qs(loaders.front()));
+        }
+    }
+    if (updateComponentEnabled(instance, "launcher")) {
+        const HttpResult response = httpGet(
+                "https://api.github.com/repos/HiBer2007/FLFHMCLauncher/releases/latest");
+        if (response.ok) {
+            try {
+                std::string tag = nlohmann::json::parse(response.body)
+                                          .value("tag_name", std::string());
+                if (!tag.empty() && tag.front() == 'v') tag.erase(0, 1);
+#ifdef FLF_LAUNCHER_VERSION
+                if (!tag.empty() && tag != FLF_LAUNCHER_VERSION) {
+                    updates << QStringLiteral("FLFHMCLauncher %1 → %2")
+                            .arg(QStringLiteral(FLF_LAUNCHER_VERSION), qs(tag));
+                }
+#endif
+            } catch (...) {
+                // 更新源损坏时忽略
+            }
+        }
+    }
+    return updates;
+}
 
 /// 快速启动器默认文件名：launch-<实例名>；去掉 Windows 非法字符。
 QString quickStartFileName(const QString& instanceName) {
@@ -2180,14 +2243,14 @@ void MainWindow::launchSelected() {
             return;
         }
     }
-    if (instance->checkUpdatesBeforeLaunch && Workspace::get().config().checkUpdatesBeforeLaunch) {
-        std::thread([this]() {
-            std::string updateError;
-            const HmclRelease latest = fetchHmclRelease(&updateError);
-            if (!latest.ok) return;
-            if (latest.version != Workspace::get().config().hmclVersion) {
-                QMetaObject::invokeMethod(this, [this, version = qs(latest.version)]() {
-                    showToast("发现 HMCL 更新", QStringLiteral("HMCL %1 可用").arg(version), false);
+    if (instance->checkUpdatesBeforeLaunch
+            && Workspace::get().config().checkUpdatesBeforeLaunch) {
+        const Instance snapshot = *instance;
+        std::thread([this, snapshot]() {
+            const QStringList updates = checkComponentUpdates(snapshot);
+            if (!updates.isEmpty()) {
+                QMetaObject::invokeMethod(this, [this, text = updates.join(QStringLiteral(" / "))]() {
+                    showToast("发现组件更新", text, false);
                 }, Qt::QueuedConnection);
             }
         }).detach();
@@ -2371,8 +2434,61 @@ void MainWindow::quickStartSelected() {
     if (!path.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
         path += QStringLiteral(".exe");
     }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("快速启动器更新设置");
+    auto* layout = new QVBoxLayout(&dialog);
+    layout->addWidget(new QLabel("启动 HMCL 前检查哪些组件？", &dialog));
+    auto* enabled = new QCheckBox("启用更新检查", &dialog);
+    enabled->setChecked(instance->checkUpdatesBeforeLaunch);
+    layout->addWidget(enabled);
+
+    struct Item { const char* id; const char* label; };
+    const Item items[] = {
+        {"hmcl", "HMCL"},
+        {"flfapi", "FLF API"},
+        {"agent", "FLFHMCL Agent"},
+        {"fabric", "Fabric Loader"},
+        {"launcher", "FLFHMCLauncher"},
+    };
+    std::vector<std::pair<const char*, QCheckBox*>> boxes;
+    for (const Item& item : items) {
+        auto* box = new QCheckBox(QString::fromUtf8(item.label), &dialog);
+        box->setChecked(std::find(instance->updateComponents.begin(),
+                                  instance->updateComponents.end(), item.id)
+                        != instance->updateComponents.end());
+        box->setEnabled(enabled->isChecked());
+        connect(enabled, &QCheckBox::toggled, box, &QCheckBox::setEnabled);
+        layout->addWidget(box);
+        boxes.emplace_back(item.id, box);
+    }
+    auto* buttons = new QHBoxLayout;
+    auto* cancel = new QPushButton("取消", &dialog);
+    auto* ok = new QPushButton("生成", &dialog);
+    ok->setObjectName("primary");
+    buttons->addStretch();
+    buttons->addWidget(cancel);
+    buttons->addWidget(ok);
+    layout->addLayout(buttons);
+    connect(cancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(ok, &QPushButton::clicked, &dialog, &QDialog::accept);
+    if (dialog.exec() != QDialog::Accepted) return;
+
+    instance->checkUpdatesBeforeLaunch = enabled->isChecked();
+    instance->updateComponents.clear();
+    for (const auto& [id, box] : boxes) {
+        if (box->isChecked()) {
+            instance->updateComponents.emplace_back(id);
+        }
+    }
+    Workspace::get().saveInstances();
+
+    QuickStartOptions options;
+    options.checkUpdates = instance->checkUpdatesBeforeLaunch;
+    options.updateComponents = instance->updateComponents;
     std::string error;
-    if (!writeQuickStart(*instance, std::filesystem::path(path.toStdWString()), &error)) {
+    if (!writeQuickStart(*instance, std::filesystem::path(path.toStdWString()),
+                         &error, options)) {
         showToast("生成失败", qs(error), true);
         return;
     }
