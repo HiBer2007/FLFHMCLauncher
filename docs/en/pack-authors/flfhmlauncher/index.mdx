@@ -1,0 +1,135 @@
+---
+title: FLFHMCLauncher Modpack Author Guide
+description: Exporting, importing, layer isolation, quick-start distribution, and testing for .flfhmclpack.
+audience: pack-authors
+package: flfhmlauncher
+version: 0.3.11
+toc: true
+---
+
+FLFHMCLauncher's modpack format is `.flfhmclpack`. It is not a plain zip: besides instance files it records versions, layer isolation, components, and launch information. This page covers export, distribution, import, and testing.
+
+> 📷 Suggested image: internal structure of a `.flfhmclpack`, marking metadata, instance directory, mods, runtime, and quick-start launcher. (image pending)
+
+## 1. What the pack contains
+
+A usable pack usually contains:
+
+- instance metadata (HMCL, Fabric, Java, Agent, FLF API versions);
+- the `.minecraft` game version, configuration, and mods;
+- `.hmcl` launcher configuration;
+- layer isolation settings;
+- an optional quick-start launcher.
+
+It does not contain: user account tokens, personal saves (unless explicitly selected), logs, or caches.
+
+## 2. Export
+
+1. Select an instance.
+2. Choose "Export modpack".
+3. Select the contents.
+4. Decide whether to include user data.
+5. Generate the `.flfhmclpack`.
+6. Verify size and SHA-256.
+
+Before exporting, remove:
+
+- test mods;
+- old logs;
+- temporary files;
+- account information unrelated to the pack.
+
+## 3. Import and overwrite
+
+On import the launcher:
+
+- validates format and version;
+- creates or selects an instance;
+- writes files according to the layer policy;
+- preserves user mods when the pack allows it;
+- rolls back on failure.
+
+Back up before an overwrite install. Do not assume import replaces every file; follow the pack metadata.
+
+## 4. Instance layout
+
+```text
+<instance>/
+├─ .minecraft/       game and mods
+├─ .hmcl/            HMCL configuration
+├─ profile/          launch configuration
+├─ logs/             logs
+└─ crash-report/     crash reports
+```
+
+Layer isolation maps these directories to private, shared, or group locations.
+
+## 5. Layer isolation
+
+| Mode | Use | Note |
+|---|---|---|
+| Private | Single independent instance | Larger, simplest upgrade |
+| Shared | Multiple instances share game/mods | Handle mod conflicts |
+| Group | Instances in one group share | Keep group config consistent |
+
+Recommended: private by default; use shared/group only when multiple versions need common resources.
+
+## 6. Platform and API packaging
+
+- ship a matching FLFHMCL Agent;
+- ship FLF API core and required submodules;
+- do not shade API classes into business jars;
+- exclude test mods;
+- record versions in metadata for upgrades.
+
+## 7. Quick-start distribution
+
+A quick-start launcher can ship with the pack:
+
+- generation embeds instance id, root, modsDir, and launch command;
+- it re-scans modsDir at runtime, so added/removed mods apply automatically;
+- icon and filename are customizable;
+- the process should exit after HMCL closes;
+- never hard-code absolute paths from another machine.
+
+> 📷 Suggested image: quick-start generation dialog and embedded configuration. (image pending)
+
+## 8. Versions and upgrades
+
+- external version: pack version;
+- internal versions: HMCL/Fabric/Agent/FLF API;
+- document the compatibility range for upgrades;
+- downgrades may not accept newer configuration, so back up first;
+- do not confuse the pack version with the four-part FLF API version.
+
+## 9. Distribution
+
+- publish SHA-256;
+- split/compress large packs;
+- document installation on the release page;
+- sign when required;
+- state whether Java must be downloaded separately.
+
+## 10. Test matrix
+
+| Scenario | Check |
+|---|---|
+| Fresh install | Starts and reaches the main window |
+| Overwrite upgrade | User mods/saves preserved |
+| Moved directory | Quick-start and paths still work |
+| Chinese path | Extraction, launch, mod loading work |
+| Offline | Cached dependencies allow startup |
+| HMCL version mismatch | Clear error |
+| Quick-start | Mod add/remove applies, exits after close |
+
+## 11. Troubleshooting
+
+| Symptom | Cause | Action |
+|---|---|---|
+| Import fails | Corrupt pack/unsupported version | Verify SHA-256, update launcher |
+| Missing Agent at startup | Not packaged or wrong path | Check metadata and directories |
+| Quick-start loads old mods | Old template without rescan | Regenerate with current launcher |
+| Lingering process | HMCL did not exit | Update Agent, inspect threads |
+| Chinese path failure | Old encoding issue | Upgrade to current version |
+
+> External business components are outside this page; packs declare dependencies and link to their documentation.

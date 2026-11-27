@@ -1,0 +1,139 @@
+---
+title: FLFHMCLauncher User Guide
+description: Installation, instances, mods, quick-start launchers, modpacks, logs, and CLI.
+audience: users
+package: flfhmlauncher
+version: 0.3.11
+toc: true
+---
+
+FLFHMCLauncher is the shell and high-level entry point for FLFHMCL. It does not implement the Fabric runtime itself. It packages environment setup, instance creation, component installation, HMCL launch, mod management, and modpacks into a desktop application.
+
+You can also start FLFHMCL directly through the Agent without this launcher. The launcher simply removes the need to assemble commands and manage directories by hand.
+
+> 📷 Suggested image: the launcher main window with instance list, accounts, downloads, settings, and log entry points annotated. (image pending)
+
+## 1. Installation
+
+The release is a self-contained EXE. On first run it extracts the GUI, quick-start template, spdlog, and the VC++ runtime to:
+
+```text
+<launcher directory>/.flfhmcl/bin
+```
+
+The same EXE then starts the GUI. Requirements:
+
+- Windows 10/11 x64;
+- a writable directory;
+- enough disk space;
+- if security software blocks it, verify the source and checksum first.
+
+> 📷 Suggested image: first-run extraction directory with `.flfhmcl/bin` and GUI files highlighted. (image pending)
+
+## 2. UI tour
+
+The main window typically contains:
+
+- instance list: create, import, launch;
+- accounts: sign in and switch;
+- downloads: HMCL, Fabric, Java, components;
+- settings: mirrors, Java, updates, isolation;
+- logs/diagnostics: runtime log, crash reports, instance validation;
+- external extension entries supplied by third-party mods, not by the launcher core.
+
+## 3. Creating an instance
+
+When creating an instance, choose:
+
+1. HMCL version;
+2. Fabric Loader version;
+3. Java;
+4. game directory and isolation mode;
+5. whether to install the FLFHMCL Agent and FLF API.
+
+Use a separate directory for a new instance to avoid multiple instances sharing `.minecraft` and conflicting mods.
+
+## 4. Installing and updating components
+
+The launcher can install/update:
+
+- HMCL;
+- FLFHMCL Agent;
+- FLF API;
+- Fabric Loader;
+- the launcher itself.
+
+Back up the instance before updating. Afterward, check the Agent, API, and HMCL versions in the log.
+
+## 5. Launch and quick-start launcher
+
+Normal launch: select an instance and start; the launcher builds the Java command and starts HMCL.
+
+Quick-start launcher:
+
+- generates a separate EXE for one instance;
+- default name `launch-<instance>.exe`;
+- supports renaming and icons;
+- re-scans the current mod directory at launch, so adding/removing mods does not require regeneration;
+- the quick-start process and Java process should exit after HMCL closes.
+
+> 📷 Suggested image: quick-start creation dialog and the generated EXE icon. (image pending)
+
+## 6. Mod management
+
+- drag and drop, multi-select, batch enable/disable;
+- duplicate mod ID detection;
+- do not ship test mods in production;
+- preserve user configuration when updating;
+- after removing a mod, check that dependencies are still complete.
+
+## 7. Modpacks
+
+`.flfhmclpack` is supported:
+
+- import: choose the pack and confirm the overwrite policy;
+- export: choose the instance and contents;
+- overwrite install preserves user data according to pack settings;
+- back up before upgrading.
+
+## 8. Instance isolation
+
+The launcher supports private, shared, and group directory strategies:
+
+- private: fully independent;
+- shared: multiple instances share game/mods;
+- group: instances in the same group share.
+
+Isolation changes where mods, saves, and configuration live. Back up before switching.
+
+## 9. Logs and repair
+
+- log: `logs/latest.log` under the instance;
+- crash reports: `crash-report/`;
+- instance validation: missing/duplicate/corrupt files;
+- repair: re-download missing components;
+- cache cleanup: delete regenerable caches, never saves.
+
+## 10. CLI basics
+
+```powershell
+FLFLauncherCli.exe launch <instance-id>
+FLFLauncherCli.exe quickstart <instance-id> <target.exe>
+FLFLauncherCli.exe validate <instance-id>
+FLFLauncherCli.exe repair <instance-id>
+```
+
+The CLI suits scripts and server environments; the GUI suits daily use.
+
+## 11. Troubleshooting
+
+| Symptom | Cause | Action |
+|---|---|---|
+| Quick-start does not exit | HMCL Java process did not terminate | Update the Agent and check non-daemon threads |
+| New mods do not apply | Quick-start used a stale snapshot | Update launcher/quick-start template |
+| Immediate startup failure | Agent/API/HMCL version mismatch | Align versions and read the log |
+| Downloads stall | Mirror/network issue | Switch mirrors, check proxy |
+| Chinese path failure | Old component lacks UTF-8 support | Update to the current version |
+| Corrupt instance | Overwrite/disk issue | Validate/repair, restore from backup if needed |
+
+> NSum Bridge, SSO, and other external components are outside FLFHMCLauncher documentation. External extension entries in the UI are mentioned only as external components.

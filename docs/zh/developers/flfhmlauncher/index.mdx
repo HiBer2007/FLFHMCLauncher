@@ -1,0 +1,183 @@
+---
+title: FLFHMCLauncher 开发者文档
+description: C++/Qt 架构、bootstrap、工作区、安装器、启动计划、快速启动器、整合包与构建发布。
+audience: developers
+package: flfhmlauncher
+version: 0.3.11
+toc: true
+---
+
+FLFHMCLauncher 是 FLFHMCL 的外壳，使用 C++ / 静态 Qt 实现。它不是 Java 运行时，也不负责 Fabric 类加载；它负责把实例、组件、命令、更新和进程生命周期管理起来。
+
+> 📷 配图建议：总体架构图，bootstrap → GUI/CLI → Core → QuickStart，以及 Core 与 Workspace/Installer/Launcher 的关系。（待补图）
+
+## 一、设计目标
+
+- 单文件 EXE，减少运行库依赖；
+- 静态 Qt，避免用户安装 Qt；
+- 所有路径支持中文；
+- 实例隔离、共享库、快速启动；
+- 失败可诊断，不静默崩溃；
+- 与 FLFHMCL/mclhr 解耦：只消费它们的产物。
+
+## 二、模块
+
+```text
+src/
+├─ bootstrap_main.cpp     自解压/引导
+├─ cli_main.cpp           CLI
+├─ quickstart_main.cpp    快速启动器
+├─ main.cpp               GUI 入口
+├─ core/
+│  ├─ workspace.*         工作区/实例
+│  ├─ installer.*         安装/下载/校验
+│  ├─ launcher.*          启动计划/快速启动
+│  ├─ modpack.*           .flfhmclpack
+│  ├─ quickstart_config.* 内嵌配置
+│  ├─ meta.*              元数据
+│  ├─ http.*              WinHTTP
+│  └─ mods.*              模组扫描
+└─ ui/mainwindow.*        Qt 界面
+```
+
+## 三、bootstrap
+
+发布版 `FLFHMCLauncher.exe` 在自身尾部附带 GUI、QuickStart、DLL 和资源。首次运行：
+
+1. 读取 payload；
+2. 释放到 `.flfhmcl/bin`；
+3. 校验版本；
+4. 启动 GUI。
+
+引导器本身使用 `/MT`，只依赖 Windows 系统 DLL。
+
+## 四、工作区
+
+`Workspace` 负责：
+
+- 定位 `.flfhmcl`；
+- 读取配置与实例列表；
+- 解析 profile、`.minecraft`、`.hmcl`；
+- 解析模组、库、Agent、HMCL 路径。
+
+所有路径以 UTF-8 写入 JSON/JVM 参数，避免中文路径乱码。
+
+## 五、安装器
+
+安装器负责：
+
+- 拉取元数据；
+- 选择镜像；
+- 下载；
+- SHA-1/SHA-256 校验；
+- 原子替换；
+- 失败回滚。
+
+长任务应支持取消；取消后删除临时文件，不破坏现有实例。
+
+## 六、启动计划
+
+`buildLaunchPlan` 生成：
+
+- Java 可执行文件；
+- `-javaagent` Agent；
+- `-Dflf.*` 系统属性；
+- `-Dfabric.addMods`；
+- HMCL jar；
+- Knot 主类；
+- 游戏目录/实例参数。
+
+Knot provider 用于新版 FLFHMCL；legacy provider 用于旧版 `-jar` 启动。参数顺序不能随意调整。
+
+## 七、快速启动器
+
+快速启动器是独立 EXE，配置以 `FLFQS01` 载荷追加在文件末尾：
+
+```text
+[JSON][uint64 length][FLFQS01\n]
+```
+
+配置包含：
+
+- `root`；
+- `instance`；
+- `modsDir`；
+- `command`；
+- `workingDir`；
+- `checkUpdates`。
+
+运行时：
+
+1. 读取载荷；
+2. 重新扫描 `modsDir`；
+3. 重建 `-Dfabric.addMods`；
+4. 用 `CommandLineToArgvW` 解析/重建命令行；
+5. `CreateProcessW` 启动 Java；
+6. 等待子进程结束并返回退出码。
+
+必须保证：模组增删后无需重新生成；HMCL 关闭后 Java 与快速启动器都退出。早期实现中 Swing Timer 未停止会导致 Java 残留，这是已修复的坑。
+
+> 📷 配图建议：快速启动器从读取载荷到退出的时序图，标注 modsDir 重扫与进程等待。（待补图）
+
+## 八、整合包
+
+`.flfhmclpack` 由 `modpack.cpp` 读写：
+
+- 元数据；
+- 实例文件；
+- 层配置；
+- 导入/导出；
+- 路径重写；
+- 失败回滚。
+
+导入时不要直接覆盖用户数据；按包策略保留。
+
+## 九、UI
+
+Qt Widgets 主窗口负责实例、账户、下载、设置、日志。长任务放到后台线程，通过信号更新进度；不要阻塞 GUI 线程。
+
+## 十、日志与 CLI
+
+- CommonLoggerCPP 记录日志；
+- CrashTrackerHandleLibCPP 捕获崩溃；
+- CLI 支持 `launch`、`quickstart`、`validate`、`repair`；
+- 退出码用于脚本判断。
+
+## 十一、构建
+
+```powershell
+pwsh -NoProfile -File scripts\build.ps1
+```
+
+或：
+
+```powershell
+cmake -B build -S . -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_PREFIX_PATH="H:/Qt-static/6.11.1/msvc2022_64" `
+  -DCMAKE_TOOLCHAIN_FILE="H:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows
+cmake --build build --config Release
+cmake --build build --target package-release
+```
+
+## 十二、测试
+
+- 快速启动器：模组增删、关闭退出；
+- 中文路径；
+- 覆盖升级；
+- 缺 Agent/API；
+- HMCL 版本不匹配；
+- 导入损坏包；
+- CLI 退出码。
+
+## 十三、常见陷阱
+
+- 快速启动器固化模组快照；
+- Java 进程因非 daemon 线程残留；
+- 覆盖安装未回滚；
+- 绝对路径写入可移动包；
+- 取消后临时文件未清理；
+- 中文路径未使用 UTF-8。
+
+> 外部业务组件不在本文范围；启动器只负责通用平台能力。

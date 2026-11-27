@@ -1,0 +1,42 @@
+# FLFHMCLauncher 文档写作规范
+
+## 范围
+
+- GUI / CLI / bootstrap
+- 工作区、实例、安装、更新
+- 快速启动器
+- `.flfhmclpack`
+- 日志、CrashTracker、诊断
+- C++ / Qt 架构与构建
+
+不写 NSum Bridge、SSO 等外部业务组件。界面里如果存在外部扩展入口，只注明“外部扩展”，不展开其功能。
+
+## 目录
+
+```text
+docs/
+  zh/{users,pack-authors,developers}/flfhmlauncher/
+  en/{users,pack-authors,developers}/flfhmlauncher/
+  public/{zh,en}/
+  _assets/
+```
+
+## 页面要求
+
+- 中文 1500–4000 字，英文完整对应。
+- 每页包含：目标、前置条件、步骤/架构、验证、常见问题。
+- 至少 2 处图或截图占位：
+
+```text
+> 📷 配图建议：<画面说明>（待补图）
+```
+
+- 命令、路径、按钮、版本必须具体。
+- 快速启动器章节必须覆盖：模组变动自动重扫、HMCL 关闭后进程退出。
+- 不把 `.flfhmclpack` 与普通 zip 混为一谈。
+
+## Nextra
+
+- frontmatter：`title`、`description`、`audience`、`package`、`version`、`toc`。
+- 每个目录 `_meta.js`。
+- 图片放 `docs/public/{zh,en}/...`，图表源放 `docs/_assets/diagrams/`。

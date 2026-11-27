@@ -1,0 +1,183 @@
+---
+title: FLFHMCLauncher Developer Documentation
+description: C++/Qt architecture, bootstrap, workspace, installer, launch plans, quick-start launcher, modpacks, and release builds.
+audience: developers
+package: flfhmlauncher
+version: 0.3.11
+toc: true
+---
+
+FLFHMCLauncher is the shell around FLFHMCL, implemented in C++ with static Qt. It is not the Java runtime and does not load Fabric classes. It manages instances, components, commands, updates, and process lifetime.
+
+> 📷 Suggested image: overall architecture from bootstrap to GUI/CLI, Core, and QuickStart, plus the relationship between Core, Workspace, Installer, and Launcher. (image pending)
+
+## 1. Design goals
+
+- single-file EXE with minimal runtime dependencies;
+- static Qt, so users do not install Qt;
+- full Chinese-path support;
+- instance isolation, shared libraries, quick start;
+- diagnosable failures instead of silent crashes;
+- decoupling from FLFHMCL/mclhr: consume their artifacts only.
+
+## 2. Modules
+
+```text
+src/
+├─ bootstrap_main.cpp     self-extract/bootstrap
+├─ cli_main.cpp           CLI
+├─ quickstart_main.cpp    quick-start launcher
+├─ main.cpp               GUI entry
+├─ core/
+│  ├─ workspace.*         workspace/instances
+│  ├─ installer.*         install/download/verify
+│  ├─ launcher.*          launch plan/quick start
+│  ├─ modpack.*           .flfhmclpack
+│  ├─ quickstart_config.* embedded config
+│  ├─ meta.*              metadata
+│  ├─ http.*              WinHTTP
+│  └─ mods.*              mod scanning
+└─ ui/mainwindow.*        Qt UI
+```
+
+## 3. Bootstrap
+
+The release `FLFHMCLauncher.exe` carries the GUI, QuickStart, DLLs, and resources in a payload. On first run it:
+
+1. reads the payload;
+2. extracts to `.flfhmcl/bin`;
+3. verifies versions;
+4. starts the GUI.
+
+The bootstrap itself is built with `/MT` and depends only on Windows system DLLs.
+
+## 4. Workspace
+
+`Workspace` is responsible for:
+
+- locating `.flfhmcl`;
+- reading configuration and the instance list;
+- resolving profile, `.minecraft`, and `.hmcl`;
+- resolving mods, libraries, Agent, and HMCL paths.
+
+All paths written to JSON/JVM arguments are UTF-8 to avoid Chinese-path corruption.
+
+## 5. Installer
+
+The installer:
+
+- fetches metadata;
+- selects mirrors;
+- downloads;
+- verifies SHA-1/SHA-256;
+- performs atomic replacement;
+- rolls back on failure.
+
+Long tasks must support cancellation; cancellation removes temporary files without damaging the existing instance.
+
+## 6. Launch plan
+
+`buildLaunchPlan` produces:
+
+- the Java executable;
+- the `-javaagent` Agent;
+- `-Dflf.*` system properties;
+- `-Dfabric.addMods`;
+- the HMCL jar;
+- the Knot main class;
+- game directory/instance arguments.
+
+The Knot provider is used by current FLFHMCL; the legacy provider handles old `-jar` launches. Argument order is significant.
+
+## 7. Quick-start launcher
+
+The quick-start launcher is a separate EXE. Its configuration is appended with a `FLFQS01` payload:
+
+```text
+[JSON][uint64 length][FLFQS01\n]
+```
+
+The configuration contains:
+
+- `root`;
+- `instance`;
+- `modsDir`;
+- `command`;
+- `workingDir`;
+- `checkUpdates`.
+
+At runtime it:
+
+1. reads the payload;
+2. re-scans `modsDir`;
+3. rebuilds `-Dfabric.addMods`;
+4. parses/rebuilds the command line with `CommandLineToArgvW`;
+5. starts Java with `CreateProcessW`;
+6. waits for the child and returns its exit code.
+
+It must ensure that mod additions/removals need no regeneration, and that both Java and the quick-start process exit after HMCL closes. An earlier implementation leaked a non-daemon Swing timer; that is fixed.
+
+> 📷 Suggested image: quick-start sequence from payload read to exit, marking modsDir rescan and child wait. (image pending)
+
+## 8. Modpacks
+
+`.flfhmclpack` is read/written by `modpack.cpp`:
+
+- metadata;
+- instance files;
+- layer configuration;
+- import/export;
+- path rewriting;
+- rollback on failure.
+
+Imports must not blindly overwrite user data; follow the pack policy.
+
+## 9. UI
+
+The Qt Widgets main window handles instances, accounts, downloads, settings, and logs. Long tasks run on worker threads and report progress via signals; never block the GUI thread.
+
+## 10. Logging and CLI
+
+- CommonLoggerCPP records logs;
+- CrashTrackerHandleLibCPP captures crashes;
+- CLI supports `launch`, `quickstart`, `validate`, and `repair`;
+- exit codes are stable for scripts.
+
+## 11. Build
+
+```powershell
+pwsh -NoProfile -File scripts\build.ps1
+```
+
+Or:
+
+```powershell
+cmake -B build -S . -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_PREFIX_PATH="H:/Qt-static/6.11.1/msvc2022_64" `
+  -DCMAKE_TOOLCHAIN_FILE="H:/vcpkg/scripts/buildsystems/vcpkg.cmake" `
+  -DVCPKG_TARGET_TRIPLET=x64-windows
+cmake --build build --config Release
+cmake --build build --target package-release
+```
+
+## 12. Testing
+
+- quick start: mod add/remove, exit after close;
+- Chinese paths;
+- overwrite upgrade;
+- missing Agent/API;
+- HMCL version mismatch;
+- corrupt pack import;
+- CLI exit codes.
+
+## 13. Pitfalls
+
+- freezing the mod snapshot in the quick-start launcher;
+- lingering Java processes from non-daemon threads;
+- overwrite installs without rollback;
+- absolute paths baked into movable packs;
+- temporary files left after cancellation;
+- non-UTF-8 path handling.
+
+> External business components are outside this page; the launcher provides generic platform capabilities only.
