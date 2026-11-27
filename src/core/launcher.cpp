@@ -493,6 +493,7 @@ bool writeQuickStart(const Instance& instance, const fs::path& targetExe,
     nlohmann::json json = {
         {"root", pathUtf8(Workspace::get().home())},
         {"instance", instance.id},
+        {"modsDir", pathUtf8(Workspace::get().resolveMods(instance))},
         {"command", joinCommand(plan)},
         {"workingDir", pathUtf8(plan.workingDir)},
         {"checkUpdates", options.checkUpdates},

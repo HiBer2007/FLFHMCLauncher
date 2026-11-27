@@ -132,6 +132,14 @@ bool parseConfig(const std::string& json, const std::filesystem::path& exePath,
     extractString(json, "java", out.java);
     extractString(json, "command", out.command);
     extractString(json, "workingDir", out.workingDir);
+    std::string mods;
+    if (extractString(json, "modsDir", mods) && !mods.empty()) {
+        out.modsDir = pathFromUtf8(mods);
+        if (out.modsDir.is_relative()) {
+            out.modsDir = rootPath / out.modsDir;
+        }
+        out.modsDir = out.modsDir.lexically_normal();
+    }
 
     // root 是相对路径；command/workingDir 是生成时的绝对路径。
     // 整个目录搬走后，把旧根目录前缀替换成新的解析结果。

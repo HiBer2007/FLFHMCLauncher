@@ -10,6 +10,7 @@ namespace flf {
 struct QuickStartConfig {
     std::filesystem::path launcherRoot;   // 启动器根目录（含 .flfhmcl）
     std::string instance;                 // 实例 id
+    std::filesystem::path modsDir;        // 实例模组目录（启动时重新扫描）
     std::string java;                     // 可选：java.exe
     std::string command;                  // 完整命令行（由启动器生成）
     std::string workingDir;               // 工作目录
