@@ -136,4 +136,183 @@ The CLI suits scripts and server environments; the GUI suits daily use.
 | Chinese path failure | Old component lacks UTF-8 support | Update to the current version |
 | Corrupt instance | Overwrite/disk issue | Validate/repair, restore from backup if needed |
 
+## 12. UI map: what each area does
+
+The table assumes the default theme and default window size.
+
+| Area | Location | Purpose | Common actions |
+|---|---|---|---|
+| Top navigation | Top of the window | Switch main pages and theme | **New** opens the create page; **Dark/Light** switches theme immediately |
+| Left sidebar | Left of the launch page | Page navigation, shows the HMCL version | **Launch HMCL** returns to the list |
+| Action card | Left column of the launch page | Acts on the selected instance | New, launch, mods, open folder, create quick-start, import/export pack, update components, delete |
+| Instance list | Right of the launch page | One card per instance, each with **Launch** | Click a card to select; clicking **Launch** selects first, then starts |
+| Status line | Below the list | Instance count and hints | Prompts you to create one when empty |
+| Settings page | **Settings** | Validation/update switches, post-launch behavior, data directory | **Validate before launch** and **Check updates before launch** save instantly; **After launch** picks keep/hide/exit |
+| Create instance page | **New** | Name, four version pickers, isolation switch | Each row has **Refresh** / **Stop** and a thin progress bar while loading |
+| Install progress page | After **Start download** | Overall progress left, per-step detail right | **Retry** appears on failure; repair reuses this page |
+| Mod management page | Action card **Mod management** | Lists jars in the mods directory | Check to enable; **Import mods**, **Delete**, **Back** |
+| Modpack wizard | **Import/Export pack** | Two pages: .hmcl contents, confirm mods | A URL exports a link only; leave it empty to embed the jar |
+| Crash dialog | When HMCL exits abnormally | Root cause, advice, exit code, exception summary | **Repair instance**, **Copy diagnostics**, **Open report folder** |
+| Help/About page | **Help** | Short intro and project entry | **Open project homepage** |
+
+> 📷 Suggested image: full launch page with numbered callouts on the top navigation, action card, instance cards, and status line. (image pending)
+
+## 13. First-run walkthrough
+
+Follow this order; each step names where to look when something goes wrong.
+
+1. Put `FLFHMCLauncher.exe` in a writable directory such as `D:\Games\FLFHMCL\`, not under `C:\Program Files`.
+2. Double-click the EXE. The bootstrap reads the payload at the end of its own file and extracts `FLFHMCLauncherApp.exe`, `FLFQuickStart.exe`, and the runtime DLLs to `<launcher directory>\.flfhmcl\bin`, then writes a `.payload` stamp.
+3. On later runs, matching stamp and complete files skip extraction and start the GUI directly. If it reports a failed replacement because a file is in use, exit the old copy first.
+4. The GUI then completes the skeleton: `bin`, `config`, `libraries`, `java`, `javafx`, `fabric`, `hmcl`, `tools/CrashTracker`, `instances`, `cache/downloads`, `cache/meta`, `logs`, `crash-report`.
+5. About 1.5 seconds in, CrashTracker is released in the background: the embedded resource is tried first, then `CrashTracker_Static.exe` from the latest GitHub release, both checksum-verified and placed in `.flfhmcl\tools\CrashTracker`, with a copy beside the GUI. Failure is only logged.
+6. Click **New** and wait until the HMCL, FLFHMCL, and Fabric Loader lists have loaded. Do not click **Start download** while they are still spinning.
+7. Open **Settings** and check the defaults: validate before launch (on), check updates before launch (on), after launch (keep launcher visible). The first two can be turned off temporarily while troubleshooting.
+8. Enter a name, pick versions, decide on isolation, and click **Start download**. It is only done when progress reaches 100% and the "instance created" toast appears.
+9. Back on the launch page, click **Launch**. Files are validated first, updates are checked in a background thread, and "HMCL launched" appears once `Loading Done!` shows up in the output.
+10. If HMCL exits abnormally, the dialog names the root cause and advice: try **Repair instance** first, then **Copy diagnostics** for a bug report.
+
+There are two update entries and they differ: **Settings → Check HMCL updates** only compares versions and reports "already up to date" or "new version found" without downloading; **Action card → Update instance components** actually downloads and replaces components.
+
+## 14. Creating an instance and installing components
+
+- **Name**: defaults to an example name. Clearing it shows "name cannot be empty". Duplicate names are allowed with the hint that instances are still stored separately by UUID, so both keep their own data.
+- **HMCL version**: pick a channel (stable/preview), then a specific version.
+- **FLFHMCL version**: also stable/preview. Versions `2.1` through `2.1.5` are flagged as severely broken: creation is blocked and asks for `2.1.5` or newer, and launching suggests **Update instance**.
+- **Fabric Loader**: a single list from the official Fabric API; if loading fails it falls back to `0.19.5` and disables the field rather than installing an empty version.
+- **FLF API**: "do not install" is valid. Only versions compatible with the current HMCL/FLFHMCL combination are listed; when none matches, the UI says so and only skipping or switching combinations works.
+- **Isolation switch**: `Isolate .minecraft and .hmcl into .launcher/<instance>`. Recommended for new instances; see section 18.
+- **What gets installed**: Java 21 (Temurin), JavaFX, Fabric libraries, the HMCL jar and its dependencies, the FLFHMCL Agent, and optionally FLF API. Steps read "Preparing Java", "Downloading JavaFX", "Installing Fabric", "Installing HMCL dependencies", "Installing HMCL", and each can expand to sub-item percentages.
+- **Abort and retry**: the progress page has no cancel button; closing the window aborts. **Retry** appears after a failure, fills only the gaps, and keeps downloaded libraries.
+- **Updating components**: in "Update instance components", tick components and target versions, then **Start update**. It overwrites jars and rebuilds the manifest; saves and config stay untouched, but exporting a backup first is still wise.
+
+## 15. Mod management: import, enable, conflicts
+
+- **Directory**: `.flfhmcl\mods\<uuid>` by default; setting the mods layer to `shared` uses `.flfhmcl\mods\general`.
+- **What is listed**: only `.jar` and `.jar.disabled`. The checkbox toggles enablement by renaming the file to add or remove the `.disabled` suffix; the location never changes.
+- **Import**: **Import mods** supports multi-select, and multiple jars can be dropped on the list. Import overwrites: an existing file with the same name is replaced without a backup.
+- **When it takes effect**: at launch the launcher joins the Agent jar and every `.jar` in the mods directory into `-Dfabric.addMods` for KnotClient, so added or removed jars apply on the next launch without reinstalling.
+- **Same name, different versions**: keeping both puts both into `addMods`, which typically fails at startup with duplicate mod or class conflicts. Remove or disable the old version before adding the new one.
+- **Same mod id, different filenames** (for example `foo-1.2.jar` and `foo-1.2-copy.jar`): Fabric reports a duplicate mod during loading and HMCL exits abnormally, with the exception lines in the summary. This version manages mods by filename and does not parse mod ids, so confirm duplicates from the log.
+- **Duplicate Fabric Loader**: `duplicate fabric loader` in the log is a manifest problem, not a mod problem; **Repair instance** rebuilds the manifest for the selected version and removes duplicates.
+- **Missing dependencies**: `NoClassDefFoundError` usually means a missing prerequisite mod or a version mismatch; add the prerequisite or repair the instance.
+- **After deleting**: before removing a library mod, make sure nothing else depends on it; do not ship test mods in production.
+- **Filenames**: prefer plain ASCII; with non-ASCII names, confirm path encoding in the log.
+
+> 📷 Suggested image: mod management page with callouts on the checkbox, Import mods, Delete, Back, and a multi-jar drop in progress. (image pending)
+
+## 16. Quick start: creating, naming, dynamic mods rescan, exit behavior
+
+- **Create**: select an instance on the launch page → **Create quick-start launcher** → the save dialog suggests `<launcher directory>\launch-<instance>.exe`. Characters such as `< > : " / \ | ? *` in the instance name are replaced, and an empty name becomes `instance`.
+- **How it is built**: `\.flfhmcl\bin\FLFQuickStart.exe` is copied to the target path, then a config JSON (`root`, `instance`, `modsDir`, `command`, `workingDir`, `checkUpdates`, `updateComponents`) is appended as a `FLFQS01` payload at the end of the EXE. The result is a single distributable file.
+- **Naming**: rename it in the save dialog; a missing extension gets `.exe`. **Choosing an icon is not supported yet**: the generated EXE keeps the `FLFQuickStart.exe` icon. Do not rewrite it with a resource editor either, because the trailing payload can be truncated and it then fails with "no embedded quick-start configuration and no quickstart.json beside it".
+- **Update checks**: before generating, the "quick-start update settings" dialog asks you to enable update checks and pick components (HMCL / FLF API / FLFHMCL Agent / Fabric Loader / FLFHMCLauncher). These settings are also written back to the instance, so normal launches are affected too.
+- **Dynamic mods rescan**: every double-click re-scans `.jar` files in `modsDir`, sorts them, and rebuilds `-Dfabric.addMods`, never relying on the snapshot taken at generation time. Adding or removing mods therefore needs no regeneration; `.jar.disabled` is excluded, and renamed jars apply under their new name on the next launch.
+  - Exception: if the mods directory is moved or emptied after generation, `modsDir` still points at the old path and the instance looks as if all mods vanished. Put the mods back or regenerate the launcher.
+- **Close and exit**: the quick-start launcher starts Java with `CreateProcess` and waits for it. When HMCL closes, it reads the child exit code, exits immediately, and returns that same code, leaving no window behind. While HMCL runs, Task Manager should show `FLFQuickStart.exe` together with `java.exe`; killing only the former does not stop the game.
+- **Post-launch behavior of the main launcher**: **Settings → After launch** offers keep the launcher visible (default), hide it, or exit. An instance can override this under **current instance override**, or inherit the global value. With **Hide launcher** the window disappears and this version has no tray icon, so reopening means starting the launcher again (a second window); the default is the safer choice. With **Exit launcher** the launcher process ends and only HMCL remains.
+
+## 17. Modpacks: import, export, overwrite
+
+- **Three import entries**: drop a `.flfhmclpack` on the window; click **Import pack** on the launch page; or drop the pack onto the `FLFHMCLauncher.exe` icon, where the bootstrap forwards the command line and the GUI recognizes the extension and imports it.
+- **Import rules**: a new UUID is generated, `isolated=true` is forced (`.minecraft` and `.hmcl` go to `.launcher/<uuid>`), directories, files, empty folders, and runtime jars are restored, every file is checked against SHA-256, and `instances.json` is written with the new instance selected. The global `.minecraft` / `.hmcl` is never overwritten.
+- **What "overwrite install" really overwrites**: import always creates a new instance and never replaces an existing one; overwriting happens only for same-path files inside the pack written into the new instance, and for link-type mods downloaded after their `sha256` check. To replace an instance, delete the old one first.
+- **Export**: a two-page wizard. Page one selects `.hmcl` contents (`.hmcl`, config, state, cache, logs, `.minecraft/logs`, and `crash-reports`; cache and logs are off by default; token, password, secret, and session fields are stripped automatically). Page two confirms mods: leave a row empty to embed the jar, or enter a URL to export a link only, downloaded and verified by `sha256` at import.
+- **Advice**: export before upgrading; clean screenshots and asset caches before exporting a large instance; even with automatic token stripping, re-check other files before publishing a pack.
+
+> 📷 Suggested image: wizard page two "Confirm mods" with the mod file column and link column annotated "empty = embed". (image pending)
+
+## 18. Isolation and directory layout
+
+The table uses the EXE directory as `<launcher directory>`, with `.flfhmcl` as its sibling:
+
+| Path | Contents | Notes |
+|---|---|---|
+| `\.flfhmcl\bin` | GUI, `FLFQuickStart.exe`, runtime DLLs, `.payload` | Extracted on first run and rebuilt if deleted |
+| `\.flfhmcl\config\launcher.json` | Global config: HMCL version, mirrors, post-launch behavior, validate/update switches | Back up before editing by hand |
+| `\.flfhmcl\config\instances.json` | Instance list: UUID, versions, isolation layers, behavior override | Shared with the CLI; avoid concurrent writes |
+| `\.flfhmcl\instances\<uuid>` | Instance directory (older builds used the id; migrated to UUID on startup) | Rarely entered by hand |
+| `\.flfhmcl\profile\<uuid>` | `instance.json`, `launch.json`, `mclhr.json` | The manifest hash is stored in the instance config |
+| `\.flfhmcl\mods\<uuid>`, `\.flfhmcl\mods\general` | Private mods / shared mods | See the isolation table below |
+| `\.flfhmcl\hmcl`, `agents`, `libraries`, `java`, `javafx`, `fabric` | HMCL, Agent, libraries, Java, JavaFX, Fabric | Shared runtime filled in by the installer |
+| `\.flfhmcl\logs\launcher.log` | Launcher log (one line on start and exit) | Required when reporting issues |
+| `\.flfhmcl\logs\instance-<uuid>.log` | Instance console output, appended live | Cross-check with the HMCL log |
+| `\.flfhmcl\crash-report` | Launcher crash reports | Written by the crash handler |
+| `\.flfhmcl\tools\CrashTracker` | CrashTracker utility | Released in the background |
+| `<launcher directory>\.launcher\<uuid>\.minecraft`, `\.hmcl` | Game directory and HMCL home of an isolated instance | `isolated=true` |
+| `<launcher directory>\.minecraft`, `\.hmcl` | Shared by non-isolated instances | Sharing affects all of them |
+
+Isolation table:
+
+| Layer | private | shared | group |
+|---|---|---|---|
+| mods | `\.flfhmcl\mods\<uuid>` | `\.flfhmcl\mods\general` | Reserved: `\.flfhmcl\shared\mods\<group>` |
+| minecraft / hmclHome | `.launcher\<uuid>` when `isolated=true`, otherwise the sibling `.minecraft` / `.hmcl` | Same, driven by the isolation switch | Same |
+
+The only isolation control in the UI is the switch on the create page; the `mods`, `minecraft`, and `hmclHome` layers live in the same-named fields of `instances.json` (`mode` is `private`, `shared`, or `group`, optionally with `group`) and take effect after a restart. Back up saves and config before changing isolation.
+
+> 📷 Suggested image: directory tree diagram comparing the `.flfhmcl` internals with `.launcher\<uuid>` and the sibling `.minecraft`. (image pending)
+
+## 19. Logs, crashes, repair
+
+- **Where to look first**: launcher problems in `.flfhmcl\logs\launcher.log` and `.flfhmcl\crash-report`; instance boot problems in `.flfhmcl\logs\instance-<uuid>.log`, then the newest report HMCL wrote under `crash-report`.
+- **Crash report location**: HMCL writes reports to `crash-report` inside HMCL home: `.hmcl\crash-report` when not isolated, `.launcher\<uuid>\.hmcl\crash-report` when isolated.
+- **Abnormal-exit dialog**: root causes map to known classes. `Selected repository cannot be null` / `SambaException` / `config_loading_failure` mean an ACL/Samba permission problem on HMCL config, and the advice is to fix `.hmcl` permissions rather than rebuild the manifest. `Configuration hasn't been loaded` plus `AnimationUtils` means the shutdown animation failed to initialize; `Configuration is already loaded` means settings were initialized twice; `duplicate fabric loader` means duplicate loaders; `Bootstrap failed` means Fabric bootstrap failed; `UnsupportedClassVersion`, `OutOfMemoryError`, and `NoClassDefFoundError` map to Java version, memory, and class loading. All but the ACL case offer **Repair instance**.
+- **What validation checks**: Java path exists, Agent jar exists, HMCL jar exists with a matching SHA-1, `mclhr.json` exists with a matching hash, every manifest library has group/artifact/version with no duplicates, and `net.fabricmc:fabric-loader` matches the instance version. Any failure names the specific reason.
+- **What repair does**: checks Java, Agent, HMCL, and Fabric Loader in turn, fills in missing libraries, and rebuilds the profile and `mclhr` manifest; retry from the launch page afterwards.
+- **Safe to delete**: `cache\downloads` and `cache\meta` are rebuilt automatically; never delete `instances`, `profile`, `mods`, or the saves directory.
+- **CLI equivalents** are in the next section. The GUI and CLI share `.flfhmcl`, so close the GUI before scripting to avoid concurrent writes to the instance list.
+
+## 20. CLI examples and exit codes
+
+```powershell
+# 1. Connectivity self-test: version list, Fabric Loader, HMCL release
+FLFLauncherCli.exe selftest
+
+# 2. Create and install an instance (id, game version, Fabric Loader, java.exe path)
+FLFLauncherCli.exe install myinst 1.21.1 0.19.5 "C:\Java\jdk21\bin\java.exe"
+
+# 3. Launch, validate, repair
+FLFLauncherCli.exe launch myinst
+FLFLauncherCli.exe validate myinst
+FLFLauncherCli.exe repair myinst
+
+# 4. Generate a quick-start launcher
+FLFLauncherCli.exe quickstart myinst "D:\Desktop\launch-myinst.exe"
+
+# 5. Export and import a modpack
+FLFLauncherCli.exe export-pack myinst "D:\packs\myinst.flfhmclpack"
+FLFLauncherCli.exe import-pack "D:\packs\myinst.flfhmclpack"
+```
+
+`install` prints each `[percent] step` and then `installed`; `export-pack` prints file and byte counts; `import-pack` prints the new instance id, name, and file count; `launch` streams HMCL output to the console.
+
+| Exit code | Meaning | Typical case |
+|---|---|---|
+| `0` | Success | Install finished, validation passed, import/export succeeded, or `launch` child exited with 0 |
+| `1` | Usage error | No arguments or unknown command; usage is printed |
+| `2` | Target not found | Unknown instance id, or `install` found no usable Fabric Loader |
+| `3` | Operation failed | Install, repair, validation, import/export, or quick-start write failed |
+| `4` | `launch` child exited non-zero | HMCL crashed or Java failed to start |
+
+## 21. Troubleshooting quick reference
+
+| Symptom (exact message or log line) | Cause | Action |
+|---|---|---|
+| Quick-start reports "no embedded quick-start configuration and no quickstart.json beside it" | The EXE was truncated or rewritten, losing the trailing `FLFQS01` payload | Regenerate it from the launcher; do not edit it with tools that rewrite the file |
+| Quick-start flashes and exits non-zero | Config has no `command`, or the Java path is gone | Validate/repair; check `javaPath` in the instance config |
+| All mods gone after a quick launch | The directory `modsDir` points to was moved or emptied | Restore the path or regenerate the launcher |
+| Newly added jar has no effect | Extension is not `.jar` (`.jar.disabled` and `.jar.bak` are excluded), or it went to another instance | Check whether the file is listed on the mod page |
+| HMCL exits right after launch with `duplicate fabric loader` | Multiple loader versions in the manifest | **Repair instance** rebuilds the manifest for the selected version |
+| `UnsupportedClassVersion` on launch | Instance Java is too old | Update components or point `javaPath` at a newer JDK |
+| "HMCL config directory permission error (ACL/Samba)" | Inherited ACL on `.hmcl` rejects the write probe | Fix directory permissions; do not rebuild the mclhr manifest |
+| `OutOfMemoryError` | Not enough memory allocated | Allocate more memory or close memory-hungry programs |
+| `NoClassDefFoundError` | Missing prerequisite mod/library or component mismatch | Add the prerequisite or **Repair instance** |
+| Download stalls at a fixed percentage | Mirror, proxy, or network interruption | Switch mirrors and retry; delete `cache\downloads` if needed |
+| Instance incomplete after closing the window mid-install | Download thread was interrupted before instance metadata was written | Recreate it, or run **Update instance components** |
+| Modpack import reports a sha256 mismatch | The pack was modified, or a linked jar downloaded corrupt | Fetch the original pack; verify the URLs it contains |
+| The instance list shows duplicate names | Names may repeat; data is stored per UUID | Use **Open instance folder** to identify one, then rename or delete |
+| Launcher cannot be found after hiding | Post-launch behavior is "hide launcher" and there is no tray icon | Start the launcher again; switch back to "keep launcher visible" |
+| Launch fails under a non-ASCII path | An old component does not handle UTF-8 paths | Update to the current version; if it still fails, use a plain ASCII path |
+
 > NSum Bridge, SSO, and other external components are outside FLFHMCLauncher documentation. External extension entries in the UI are mentioned only as external components.
