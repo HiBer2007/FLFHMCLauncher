@@ -175,8 +175,10 @@ std::filesystem::path firstExistingLog(const flf::QuickStartConfig& config) {
     const std::filesystem::path working = config.workingDir.empty()
             ? std::filesystem::path() : std::filesystem::path(config.workingDir);
     const std::vector<std::filesystem::path> candidates = {
+            config.launcherRoot / L".flfhmcl" / L"logs" / L"launcher.log",
             config.launcherRoot / L"logs" / L"latest.log",
             config.launcherRoot / L".hmcl" / L"logs" / L"latest.log",
+            working / L".flfhmcl" / L"logs" / L"launcher.log",
             working / L"logs" / L"latest.log",
             working / L".hmcl" / L"logs" / L"latest.log",
     };
@@ -195,7 +197,9 @@ std::filesystem::path newestCrashReport(const flf::QuickStartConfig& config) {
     std::filesystem::path newest;
     std::filesystem::file_time_type newestTime{};
     for (const auto& dir : {config.launcherRoot / L"crash-report",
+                            config.launcherRoot / L".flfhmcl" / L"crash-report",
                             working / L"crash-report",
+                            working / L".flfhmcl" / L"crash-report",
                             working / L".hmcl" / L"crash-report"}) {
         std::error_code ec;
         if (!std::filesystem::is_directory(dir, ec)) {
