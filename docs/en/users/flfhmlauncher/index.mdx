@@ -30,7 +30,14 @@ The same EXE then starts the GUI. Requirements:
 - enough disk space;
 - if security software blocks it, verify the source and checksum first.
 
-> 📷 Suggested image: first-run extraction directory with `.flfhmcl/bin` and GUI files highlighted. (image pending)
+```mermaid
+flowchart TD
+    RUN["Double-click FLFHMCLauncher.exe"] --> CHECK{"Trailing payload matches the .payload stamp and all files are present"}
+    CHECK -->|"No, first run or missing files"| EXTRACT["Extract the GUI, FLFQuickStart.exe, spdlog, and the VC++ runtime to .flfhmcl/bin"]
+    EXTRACT --> STAMP["Write the .payload stamp"]
+    STAMP --> GUI["Start the GUI on the main window"]
+    CHECK -->|"Yes"| GUI
+```
 
 ## 2. UI tour
 
@@ -159,7 +166,23 @@ The table assumes the default theme and default window size.
 | Crash dialog | When HMCL exits abnormally | Root cause, advice, exit code, exception summary | **Repair instance**, **Copy diagnostics**, **Open report folder** |
 | Help/About page | **Help** | Short intro and project entry | **Open project homepage** |
 
-> 📷 Suggested image: full launch page with numbered callouts on the top navigation, action card, instance cards, and status line. (image pending)
+```mermaid
+flowchart TD
+    NAV["1 Top navigation: Launch, New, Settings, Help, plus the light/dark switch on the right"]
+    subgraph PAGE["Launch page"]
+        SIDE["2 Left sidebar: page navigation, HMCL version at the bottom"]
+        CARD["3 Action card: New, Launch, Mods, Open folder, Create quick-start, Import/Export pack, Update components, Delete"]
+        LIST["4 Instance list: one card per instance, click to select, each card has Launch"]
+        STATUS["5 Status line: instance count, prompts you to create one when empty"]
+        SIDE --> CARD
+        CARD --> LIST
+        LIST --> STATUS
+    end
+    NAV --> SIDE
+    NAV -->|"New"| CREATE["Create instance page: name, four version pickers, isolation switch, per-row Refresh and Stop"]
+    NAV -->|"Settings"| SETTING["Settings page: validate before launch, check updates before launch, after launch; switches save instantly"]
+    NAV -->|"Help"| HELP["Help and About page: short intro and project entry"]
+```
 
 ## 13. First-run walkthrough
 
@@ -203,7 +226,19 @@ There are two update entries and they differ: **Settings → Check HMCL updates*
 - **After deleting**: before removing a library mod, make sure nothing else depends on it; do not ship test mods in production.
 - **Filenames**: prefer plain ASCII; with non-ASCII names, confirm path encoding in the log.
 
-> 📷 Suggested image: mod management page with callouts on the checkbox, Import mods, Delete, Back, and a multi-jar drop in progress. (image pending)
+```mermaid
+flowchart TD
+    DROP["Drop several jars or click Import mods"] --> OVER["Overwrite same-name files, no backup"]
+    OVER --> DIR[".flfhmcl/mods/uuid, or .flfhmcl/mods/general when the mods layer is shared"]
+    DIR --> LIST["The list shows only .jar and .jar.disabled"]
+    LIST -->|"Checkbox"| TOGGLE["Add or remove the .disabled suffix; the file stays in place"]
+    LIST -->|"Launch"| ADD["Join the Agent jar and every .jar into -Dfabric.addMods for KnotClient"]
+    ADD --> LOAD{"Fabric loads cleanly?"}
+    LOAD -->|"Yes"| OK["Mods apply, and the next launch re-scans the directory"]
+    LOAD -->|"Duplicate mod or class conflict"| DUP["Identify the conflicting files from the log"]
+    DUP --> FIX["Remove or disable the old version, then add the new one"]
+    FIX --> DIR
+```
 
 ## 16. Quick start: creating, naming, dynamic mods rescan, exit behavior
 
@@ -224,7 +259,18 @@ There are two update entries and they differ: **Settings → Check HMCL updates*
 - **Export**: a two-page wizard. Page one selects `.hmcl` contents (`.hmcl`, config, state, cache, logs, `.minecraft/logs`, and `crash-reports`; cache and logs are off by default; token, password, secret, and session fields are stripped automatically). Page two confirms mods: leave a row empty to embed the jar, or enter a URL to export a link only, downloaded and verified by `sha256` at import.
 - **Advice**: export before upgrading; clean screenshots and asset caches before exporting a large instance; even with automatic token stripping, re-check other files before publishing a pack.
 
-> 📷 Suggested image: wizard page two "Confirm mods" with the mod file column and link column annotated "empty = embed". (image pending)
+```mermaid
+flowchart TD
+    START["Export wizard page two: confirm mods"] --> ROW{"Is the link cell on this row empty?"}
+    ROW -->|"Empty"| EMBED["Embed the jar in the pack: larger pack, restorable offline"]
+    ROW -->|"URL filled in"| LINK["Export the download link only, verified by sha256 at import"]
+    EMBED --> PACK["Produce the .flfhmclpack"]
+    LINK --> PACK
+    PACK --> IMP["Import: new UUID, isolated=true forced"]
+    IMP --> SHA{"Does every file match its SHA-256?"}
+    SHA -->|"Yes"| DONE["Restore directories and runtime jars, write instances.json, select the new instance"]
+    SHA -->|"No"| FAIL["Import reports a sha256 mismatch: fetch the original pack or check the URL"]
+```
 
 ## 18. Isolation and directory layout
 
@@ -255,7 +301,21 @@ Isolation table:
 
 The only isolation control in the UI is the switch on the create page; the `mods`, `minecraft`, and `hmclHome` layers live in the same-named fields of `instances.json` (`mode` is `private`, `shared`, or `group`, optionally with `group`) and take effect after a restart. Back up saves and config before changing isolation.
 
-> 📷 Suggested image: directory tree diagram comparing the `.flfhmcl` internals with `.launcher\<uuid>` and the sibling `.minecraft`. (image pending)
+```mermaid
+flowchart TD
+    ROOT["Launcher directory: where the EXE lives"] --> FLFH[".flfhmcl: launcher data"]
+    ROOT --> ISO[".launcher/uuid: private directory of an isolated instance"]
+    ROOT --> SHARED["Sibling .minecraft and .hmcl: shared by non-isolated instances"]
+    FLFH --> BIN["bin: GUI, FLFQuickStart.exe, runtime DLLs, .payload"]
+    FLFH --> CONFIG["config: launcher.json and instances.json"]
+    FLFH --> PROFILE["instances/uuid and profile/uuid: instance manifest and launch config"]
+    FLFH --> MODSDIR["mods/uuid private, mods/general shared"]
+    FLFH --> RUNTIME["hmcl, agents, libraries, java, javafx, fabric: shared runtime"]
+    FLFH --> LOGSDIR["logs and crash-report"]
+    FLFH --> TOOLS["tools/CrashTracker"]
+    ISO --> MCISO[".minecraft: game directory of the isolated instance"]
+    ISO --> HMCLISO[".hmcl: HMCL home of the isolated instance"]
+```
 
 ## 19. Logs, crashes, repair
 

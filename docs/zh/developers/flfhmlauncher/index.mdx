@@ -9,7 +9,21 @@ toc: true
 
 FLFHMCLauncher 是 FLFHMCL 的外壳，使用 C++ / 静态 Qt 实现。它不是 Java 运行时，也不负责 Fabric 类加载；它负责把实例、组件、命令、更新和进程生命周期管理起来。
 
-> 📷 配图建议：总体架构图，bootstrap → GUI/CLI → Core → QuickStart，以及 Core 与 Workspace/Installer/Launcher 的关系。（待补图）
+```mermaid
+flowchart TD
+    EXE["FLFHMCLauncher.exe<br/>引导器"] --> GUI["GUI 主窗口"]
+    GUI --> CORE["FLFLauncherCore<br/>静态核心库"]
+    CLI["FLFLauncherCli.exe<br/>CLI"] --> CORE
+    CORE --> WS["Workspace<br/>路径与实例"]
+    CORE --> INST["Installer<br/>安装、修复、校验"]
+    CORE --> LAUNCH["Launcher<br/>启动计划与进程托管"]
+    CORE --> PACK["Modpack<br/>整合包导入导出"]
+    WS --> STORE[".flfhmcl<br/>配置、库、实例、日志"]
+    INST --> SRC["元数据与下载源"]
+    LAUNCH --> QS["FLFQuickStart.exe<br/>无 Qt"]
+    LAUNCH --> JAVA["java.exe"]
+    QS --> JAVA
+```
 
 ## 一、设计目标
 
@@ -117,7 +131,23 @@ Knot provider 用于新版 FLFHMCL；legacy provider 用于旧版 `-jar` 启动�
 
 必须保证：模组增删后无需重新生成；HMCL 关闭后 Java 与快速启动器都退出。早期实现中 Swing Timer 未停止会导致 Java 残留，这是已修复的坑。
 
-> 📷 配图建议：快速启动器从读取载荷到退出的时序图，标注 modsDir 重扫与进程等待。（待补图）
+```mermaid
+flowchart TD
+    START["启动 FLFQuickStart.exe"] --> TAIL["读取文件尾 16 字节<br/>配置长度与 FLFQS01"]
+    TAIL -->|"内嵌载荷有效"| CFG["解析 JSON 配置"]
+    TAIL -->|"无效"| SIDECAR{"同目录有 quickstart.json？"}
+    SIDECAR -->|"有"| CFG
+    SIDECAR -->|"没有"| FAIL["MessageBoxW 并返回 1"]
+    CFG -->|"缺少 command"| FAIL
+    CFG --> ARGV["CommandLineToArgvW 解析 command"]
+    ARGV --> MODS["重扫 modsDir<br/>只收 .jar 普通文件并排序"]
+    MODS --> AGENT{"找到 -Dfabric.addMods 里的 agent 路径？"}
+    AGENT -->|"有"| JOIN["按 agent;jar1;jar2 重建参数并用 quoteArg 重加引号"]
+    AGENT -->|"没有"| SPAWN["CreateProcessW 启动 Java"]
+    JOIN --> SPAWN
+    SPAWN --> WAIT["WaitForSingleObject 等待子进程"]
+    WAIT --> CODE["GetExitCodeProcess 原样返回退出码"]
+```
 
 ## 八、整合包
 
@@ -250,7 +280,24 @@ entry  : uint32 nameLen + name(UTF-8，不超过 260 字节) + uint64 size + 文
 
 自更新方面，bootstrap 不下载任何东西，它只保证"EXE 换了就重放"。用新构建覆盖发布 EXE 后 footer 里的 `offset/size` 变化，`.payload` 标记不再匹配，下次运行自动重新释放到 `bin`。覆盖动作必须在 GUI 完全退出后做，否则正在被映射的 EXE 与 DLL 无法替换；`.flfhmcl` 目录不在 payload 内，实例、库和日志不随 EXE 替换丢失。
 
-> 📷 配图建议：EXE 尾部结构示意图，标出引导器、payload 条目与 24 字节 footer。（待补图）
+```mermaid
+flowchart TD
+    EXE["发布 EXE<br/>引导器 PE + payload + footer 24 字节"] --> READ["取自身路径<br/>读尾部 24 字节 footer"]
+    READ --> CHECK{"magic 为 FLFEND01、size 非零、offset + size 在界内？"}
+    CHECK -->|"否"| DAMAGED["按载荷损坏处理"]
+    CHECK -->|"是"| PAY["读 payload<br/>校验 FLFPAY01 与版本 1"]
+    PAY --> ENTRIES{"条目名含路径分隔符、冒号或 ..？"}
+    ENTRIES -->|"是"| DAMAGED
+    ENTRIES -->|"否"| CURRENT{"标记与全部条目都匹配？"}
+    CURRENT -->|"是"| SKIP["跳过释放"]
+    CURRENT -->|"否"| WRITE["逐条写 目标.tmp<br/>再 MoveFileExW 原子替换"]
+    WRITE --> MARK["写 .payload 标记<br/>offset-size"]
+    MARK --> LAUNCH["设置 FLFHMCL_LAUNCHER_DIR<br/>启动 FLFHMCLauncherApp.exe"]
+    SKIP --> LAUNCH
+    DAMAGED --> FALLBACK{"bin 里已有 App？"}
+    FALLBACK -->|"有"| LAUNCH
+    FALLBACK -->|"没有"| MSG["MessageBoxW 并返回 1"]
+```
 
 ## 十六、工作区路径解析
 
@@ -280,6 +327,25 @@ entry  : uint32 nameLen + name(UTF-8，不超过 260 字节) + uint64 size + 文
 `Layer` 由 `mode` 与 `group` 组成，`mode` 取 `private`、`shared`、`group`，`group` 默认 `default`；读入时非法的 mode 回落成 `private`，分组名会过 `sanitizeId` 只保留字母、数字与连字符。实例的 `isolated` 为真时整个 `.minecraft` 与 `.hmcl` 搬到 `.launcher/<uuid>/` 下，和全局目录彻底分开。
 
 `instances.json` 每个条目写 `uuid`、`id`、`name`、`gameVersion`、`loader`、`loaderVersion`、`javaPath`、`agentVersion`、`hmclVersion`、`hmclSha1`、`flfApiVersion`、三层 `Layer`、`isolated`、`launchBehavior`、`createdAt`。读入时做三件兼容：旧的 id 目录重命名到 uuid 目录；旧的 `instances/<uuid>/mclhr.json` 复制到 `profile/<uuid>/`；`flfApiVersion` 按四段命名迁移（例如 `1.2.0-hmcl3.16` 变 `1.2.2.16`）。JSON 损坏时清空列表继续启动，不阻断界面。
+
+```mermaid
+flowchart TD
+    INIT["Workspace.initialize"] --> LAYOUT["ensureLayout<br/>建 bin、config、libraries、java、javafx、fabric、hmcl、tools、instances、cache、logs、crash-report"]
+    LAYOUT --> CONFIG["读 config/launcher.json 与 config/instances.json"]
+    CONFIG --> UUID{"uuid 为空？"}
+    UUID -->|"是"| BYID["实例目录退回 id"]
+    UUID -->|"否"| BYUUID["实例目录用 uuid"]
+    BYID --> MODE{"Layer.mode 是 shared？"}
+    BYUUID --> MODE
+    MODE -->|"是"| SHARED["模组目录 mods/general"]
+    MODE -->|"否"| PRIVATE["模组目录 mods/uuid"]
+    SHARED --> ISO{"实例 isolated？"}
+    PRIVATE --> ISO
+    ISO -->|"是"| ISOLATED[".minecraft 与 .hmcl 搬到 .launcher/uuid"]
+    ISO -->|"否"| GLOBAL[".minecraft 与 .hmcl 留在工作区同级"]
+    ISOLATED --> UTF8["路径经 pathUtf8 写入 JSON 与 JVM 参数"]
+    GLOBAL --> UTF8
+```
 
 ## 十七、安装器：下载、镜像、校验、原子替换与回滚
 
@@ -326,6 +392,39 @@ entry  : uint32 nameLen + name(UTF-8，不超过 260 字节) + uint64 size + 文
 下载统一走 `httpDownload`。它先用 `Range: bytes=0-0` 探测是否支持分片：支持、总大小不小于 4 MiB 且没有可续传的 `.part` 时开 4 个线程各拿一段（状态码必须是 206），否则单流写 `<目标>.part`，中断后重跑会带 `Range: bytes=<已有大小>-` 续传。所有路径最后都归到 `fs::rename(part, dest)`；目标已存在导致 rename 失败时，先删目标再 rename 一次，正式路径上不会出现半个文件。进度回调返回 false 即取消：单流删 `.part`，分片删所有分片。
 
 安装流水线本身没有事务，失败时已完成的阶段保留（Java、已校验的库、HMCL jar），重跑会复用，所以"回到干净状态"要删实例目录再装。真正有回滚的是整合包导入：`cleanupImported` 会删实例目录、profile、模组目录和隔离目录，失败不会留下半成品实例。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Prepare
+    Prepare : 准备目录 5%
+    Prepare --> Java
+    Java : Java 5%
+    Java --> JavaFX
+    JavaFX : JavaFX 10-25%
+    JavaFX --> Fabric
+    Fabric : Fabric profile 与库 30-60%
+    Fabric --> Deps
+    Deps : HMCL 依赖 62-66%
+    Deps --> Hmcl
+    Hmcl : HMCL jar 75-88%
+    Hmcl --> Agent
+    Agent : Agent 88-93%
+    Agent --> Api
+    Api : FLF API 93-95%
+    Api --> Title
+    Title : FLF Title 96-97%
+    Title --> Manifest
+    Manifest : 清单与校验 98-100%
+    Manifest --> [*]
+    Java --> Failed : 下载或解压失败
+    Hmcl --> Failed : SHA-1 不符
+    Agent --> Failed : SHA-256 不符
+    Failed : 失败 已完成阶段保留，重跑复用
+    Failed --> [*]
+    Hmcl --> Cancelled : 进度回调取消
+    Cancelled : 取消 删除 .part 与全部分片
+    Cancelled --> [*]
+```
 
 ## 十八、启动计划：参数顺序与代码流程
 
@@ -375,6 +474,36 @@ entry  : uint32 nameLen + name(UTF-8，不超过 260 字节) + uint64 size + 文
 
 顺序不能随意改：JVM 先解析 `-javaagent` 与 `-D` 选项再决定主类，`-cp` 或 `-jar` 之后的内容一律当游戏参数；Knot 模式下 HMCL 由 Fabric 加载，`-Dfabric.addMods` 必须同时包含 agent jar 与实例模组，否则只有 agent 生效；`--flf-instance` 只在快速启动器里出现，GUI 启动保持 HMCL 正常界面。另有两条轻量入口：`launchInstance` 用 `QProcess::startDetached` 点火即走，`writeQuickStart` 只生成快速启动器、不启动进程。
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MW as 主窗口
+    participant LS as launcher.cpp
+    participant JV as java.exe
+    MW->>MW: 取选中实例，补写 instance.json 与 launch.json
+    opt 开启启动前校验
+        MW->>LS: validateInstanceFiles
+        LS-->>MW: 失败则转 beginRepair
+    end
+    opt 开启启动前更新检查
+        MW->>MW: 后台比对组件更新，只弹提示
+    end
+    MW->>LS: launchInstanceManaged
+    LS->>LS: 建游戏目录与 HMCL 配置目录，跑 repairHmclAcl
+    LS->>LS: 选 LaunchProvider，Knot 优先、legacy 兜底
+    LS->>LS: buildLaunchPlan 排好公共 12 项参数与协议尾部
+    LS-->>MW: LaunchPlan
+    MW->>LS: 建 CreatePipe 并启动进程
+    LS->>JV: CreateProcessW 合并 stdout 与 stderr
+    loop 读取输出
+        JV-->>LS: 4096 字节块
+        LS-->>MW: 队列回调追加输出
+    end
+    JV-->>LS: WaitForSingleObject 等到退出
+    LS-->>MW: 退出码
+    MW->>MW: 追加 logs/instance-uuid.log，非零码提示崩溃
+```
+
 ## 十九、快速启动器：载荷、重扫、引号与进程
 
 快速启动器是独立 EXE，配置直接追加在文件尾：
@@ -409,7 +538,25 @@ entry  : uint32 nameLen + name(UTF-8，不超过 260 字节) + uint64 size + 文
 
 启动与等待分四步：`CreateProcessW(nullptr, 命令行缓冲, ..., CREATE_NO_WINDOW, workingDir)`；关掉 `hThread`；`WaitForSingleObject(hProcess, INFINITE)`；`GetExitCodeProcess` 后把子进程退出码原样返回。配置里没有 `command` 或 `CreateProcessW` 失败时弹 `MessageBoxW` 并返回 1。
 
-> 📷 配图建议：快速启动器从读取载荷、重扫模组目录到等待 Java 退出的时序图。（待补图）
+```mermaid
+sequenceDiagram
+    autonumber
+    participant QS as FLFQuickStart.exe
+    participant CFG as 载荷配置
+    participant MD as modsDir
+    participant JV as java.exe
+    QS->>CFG: 读尾部 16 字节，取长度与 FLFQS01
+    alt 内嵌载荷无效
+        QS->>CFG: 回退读同目录 quickstart.json
+    end
+    QS->>MD: directory_iterator 非递归扫描
+    MD-->>QS: 只返回 .jar 普通文件，按路径排序
+    QS->>QS: 重建 -Dfabric.addMods 并用 quoteArg 重加引号
+    QS->>JV: CreateProcessW 启动
+    QS->>JV: WaitForSingleObject INFINITE
+    JV-->>QS: GetExitCodeProcess
+    QS-->>QS: 原样返回子进程退出码
+```
 
 ## 二十、整合包格式：`.flfhmclpack` 的读写
 
@@ -445,6 +592,27 @@ pack.zip
 
 安全边界靠 `safeRelative`：绝对路径、含 `..` 或 `.` 的段一律拒绝；`payload/<role>/<相对路径>` 的拼法保证了写入点始终落在对应 role 的根目录下。
 
+```mermaid
+flowchart TD
+    subgraph EXPORT["导出"]
+        E1["建临时目录"] --> E2["按 role 收集文件并计算 SHA-256"]
+        E2 --> E3["按选择过滤 HMCL 目录<br/>logs、cache、config、state 可关"]
+        E3 --> E4["清洗键名含 token、password、secret、credential、session 的字段"]
+        E4 --> E5["写 flfhmclpack.json"]
+        E5 --> E6["用 tar.exe 打 zip 并复制到目标路径"]
+    end
+    subgraph IMPORT["导入"]
+        I1["复制进临时目录并解压"] --> I2["校验 format 与 schema"]
+        I2 --> I3["生成新 uuid 与不冲突 id<br/>强制 isolated 与三层私有"]
+        I3 --> I4["按 directories 建空目录<br/>按 files 校验 SHA-256 后落盘"]
+        I4 --> I5["runtime 写入 hmcl 与 agents<br/>链接型模组按 url 下载并校验"]
+        I5 --> I6["留档 modpack.json 并注册实例"]
+    end
+    E6 -.->|"包文件"| I1
+    I2 -->|"失败"| RB["cleanupImported 回滚"]
+    I4 -->|"失败"| RB
+```
+
 ## 二十一、Qt UI 的线程模型
 
 界面只用 Qt Widgets，长任务全部出主线程，只有两种通道：
@@ -457,6 +625,26 @@ pack.zip
 几条硬规则：worker 里不能碰任何 QWidget，也不能读 `Workspace` 的可变容器，要先把 `Instance` 拷成快照再传进去；跨线程只传 `QString`、`QStringList` 和值类型；`launchInstanceManaged` 的输出回调同样要再 invoke 回主线程，才能写 `runLog_` 和日志文件；`QTimer::singleShot(0)` 用于延迟处理拖到 exe 上的整合包，`singleShot(1500)` 用于首次运行部署 CrashTracker。
 
 启动行为分 `keep`、`hide`、`exit` 三档，实例设置优先、为空时继承全局。三档都在 `launchInstanceManaged` 返回成功之后才执行，避免启动失败把窗口藏没了。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as 主线程
+    participant WK as 工作线程
+    participant WS as Workspace
+    Note over UI,WK: 安装、修复、启动输出走 std::thread；整合包导入导出走 QtConcurrent
+    UI->>WK: 拷出 Instance 快照后启动任务
+    WK->>WS: 只读路径与配置快照
+    WK->>WK: 下载、安装或校验
+    WK->>UI: QMetaObject.invokeMethod 队列投递
+    UI->>UI: 比对 agentToken、hmclToken 等令牌
+    alt 令牌已过期
+        UI->>UI: 丢弃结果
+    else 令牌匹配
+        UI->>UI: 更新控件并追加 runLog
+    end
+    UI->>UI: QPointer 守护对话框，关闭后不再触碰
+```
 
 ## 二十二、日志、CrashTracker 与 CLI 退出码
 
@@ -486,6 +674,23 @@ CLI 的入口是 `FLFLauncherCli`，先 `Workspace::get().initialize()` 再分�
 | 2 | 找不到实例，或没有可用的 Fabric loader |
 | 3 | 操作失败：安装、修复、校验、导入导出、写快速启动器或启动 Java 失败 |
 | 4 | `launch` 启动成功但 Java 子进程以非零码退出 |
+
+```mermaid
+flowchart TD
+    ARGV["FLFLauncherCli 参数"] --> INIT["Workspace.initialize"]
+    INIT --> CMD{"子命令合法？"}
+    CMD -->|"否"| E1["退出码 1<br/>打印 usage"]
+    CMD -->|"是"| EXEC["执行子命令"]
+    EXEC --> MISS{"实例或 Fabric loader 可用？"}
+    MISS -->|"否"| E2["退出码 2"]
+    MISS -->|"是"| OP{"操作成功？"}
+    OP -->|"否"| E3["退出码 3"]
+    OP -->|"是"| LAUNCH{"子命令是 launch？"}
+    LAUNCH -->|"否"| E0["退出码 0"]
+    LAUNCH -->|"是"| CHILD{"Java 子进程退出码为 0？"}
+    CHILD -->|"是"| E0
+    CHILD -->|"否"| E4["退出码 4"]
+```
 
 ## 二十三、CMake、构建与发布
 
@@ -519,6 +724,26 @@ cmake --build build --target package-release
 `package-release` 是自定义 target，依赖引导器、GUI 与快速启动器三个产物，实际执行 `scripts/package-release.ps1 -BuildDir`：检查 `FLFHMCLauncherBootstrap.exe`、`FLFHMCLauncherApp.exe`、`FLFQuickStart.exe`、`spdlog.dll` 与图标；用 `vswhere` 找到最高版本的 VC Redist，挑出 `msvcp140*` 与 `vcruntime140*`；按 footer 布局拼出单文件 EXE。子模块要先拉齐：`git submodule update --init --recursive`（HiBerGUILibCPP、CommonLoggerCPP、CrashTrackerHandleLibCPP）。安装规则只装发布 EXE 和 `flfhmclpack.ico`，其余目录由首次运行创建。
 
 构建完的最小验证：直接运行 `build\FLFHMCLauncher.exe`，确认 `.flfhmcl/bin` 被释放且 GUI 出现；再跑 `build\FLFLauncherCli.exe selftest`，确认元数据源可达。
+
+```mermaid
+flowchart TD
+    SCRIPT["scripts/build.ps1"] --> VC["vcvars64.bat"]
+    VC --> CONF["CMake configure<br/>Release、静态 Qt、vcpkg x64-windows"]
+    CONF --> BUILD["cmake --build"]
+    BUILD --> T1["FLFLauncherCore"]
+    BUILD --> T2["FLFHMCLauncherApp"]
+    BUILD --> T3["FLFHMCLauncherBootstrap"]
+    BUILD --> T4["FLFLauncherCli"]
+    BUILD --> T5["FLFQuickStart"]
+    T2 --> PACK["package-release：scripts/package-release.ps1"]
+    T3 --> PACK
+    T5 --> PACK
+    PACK --> CHECK["检查三个 EXE、spdlog.dll 与图标"]
+    CHECK --> REDIST["vswhere 取最高版本 VC Redist<br/>挑 msvcp140 与 vcruntime140"]
+    REDIST --> ASSEMBLE["按 footer 布局拼单文件 EXE"]
+    ASSEMBLE --> OUT["FLFHMCLauncher.exe"]
+    OUT --> VERIFY["验证：释放 bin 并跑 CLI selftest"]
+```
 
 ## 二十四、测试矩阵
 

@@ -9,7 +9,19 @@ toc: true
 
 FLFHMCLauncher 的整合包格式是 `.flfhmclpack`。它不是普通 zip：除了实例文件，还记录版本、层隔离、组件与启动信息。本文说明怎样导出、分发、导入和测试。
 
-> 📷 配图建议：`.flfhmclpack` 内部结构图，标注元数据、实例目录、模组、运行时与快速启动器。（待补图）
+```mermaid
+flowchart TD
+    PACK["example.flfhmclpack<br/>标准 zip 容器"] --> MANIFEST["flfhmclpack.json<br/>唯一入口：format · schema · instance · files · mods"]
+    PACK --> PAYLOAD["payload/ 归档树"]
+    PAYLOAD --> MC["minecraft/：实例的 .minecraft"]
+    PAYLOAD --> HMCL["hmcl/：过滤后的 .hmcl"]
+    PAYLOAD --> MODS["mods/：嵌入的模组 jar"]
+    PAYLOAD --> PROF["profile/：mclhr.json"]
+    PAYLOAD --> RT["runtime/"]
+    RT --> HRT["runtime/hmcl/：选中的 HMCL jar"]
+    RT --> ART["runtime/agents/：选中的 Agent jar"]
+    PACK -.->|"不在包内"| QS["FLFQuickStart.exe<br/>单独生成"]
+```
 
 ## 一、包内包含什么
 
@@ -92,7 +104,15 @@ FLFHMCLauncher 的整合包格式是 `.flfhmclpack`。它不是普通 zip：除�
 - 关闭 HMCL 后进程应退出；
 - 不要把绝对路径写死到其他机器。
 
-> 📷 配图建议：快速启动器生成界面与嵌入配置示意。（待补图）
+```mermaid
+flowchart LR
+    SEL["选定实例"] --> GEN["生成快速启动器"]
+    TPL[".flfhmcl/bin/FLFQuickStart.exe"] --> GEN
+    GEN --> EMB["嵌入 root · instance · modsDir · command · workingDir<br/>baseRoot 让整个工作区可搬迁"]
+    EMB --> OUT["launch-实例名.exe"]
+    OUT --> SCAN["每次启动重扫 modsDir<br/>按文件名排序拼回 fabric.addMods"]
+    SCAN --> RUN["启动 HMCL 并透传退出码"]
+```
 
 ## 八、版本与升级
 
@@ -209,7 +229,21 @@ FLFHMCLauncher 的整合包格式是 `.flfhmclpack`。它不是普通 zip：除�
 
 导出阶段可能的失败提示：`无法创建临时目录`、`无法启动 tar.exe`、`tar.exe 失败: X`、`无法计算 SHA-256: X`、`写入整合包失败: X`。前两条先检查临时目录是否可写，再确认系统 `tar.exe` 在 `PATH` 中。
 
-> 📷 配图建议：导出向导两页并列截图，标出“包含 .hmcl 目录”与默认关闭的 cache、logs 开关。（待补图）
+```mermaid
+flowchart TD
+    ST["导出当前实例"] --> P1["第 1 页：选择 .hmcl 内容"]
+    P1 --> Q1{"包含 .hmcl 目录？"}
+    Q1 -->|"否"| SKIP["整棵 .hmcl 不进包"]
+    Q1 -->|"是"| TK["进包，但令牌字段固定清理<br/>作者无法关闭"]
+    P1 --> Q2{"cache 与 logs 开关"}
+    Q2 -->|"保持默认关闭"| OUT["不进包：体积小 · 无账户名与本机路径"]
+    Q2 -->|"手动开启"| IN["进包：体积大 · 可能带账户名与本机路径"]
+    SKIP --> P2["第 2 页：确认模组<br/>留空即嵌入，填 URL 只记录链接"]
+    TK --> P2
+    OUT --> P2
+    IN --> P2
+    P2 --> SAVE["保存为 实例名.flfhmclpack"]
+```
 
 ## 十四、用户数据处理与令牌清理
 
@@ -249,7 +283,21 @@ FLFHMCLauncher 的整合包格式是 `.flfhmclpack`。它不是普通 zip：除�
 
 回滚语义：任一步失败会渐次删除实例目录、profile 目录与模组目录，实例为隔离时再删掉 `.launcher/实例 UUID` 整棵树，然后弹“导入失败”。有两处不回滚：已写入 `hmcl` 与 `agents` 的运行时 jar 留在磁盘；`instances.json` 因失败前未写入，不会留下半条记录。所以失败后可以直接重试，唯一要手工收拾的是运行时 jar。
 
-> 📷 配图建议：导入失败提示与清理后 `.launcher` 目录的对比截图。（待补图）
+```mermaid
+flowchart TD
+    IN["拖入文件或点导入整合包"] --> EXT{"扩展名正确？"}
+    EXT -->|"否"| E1["导入失败: 不是 .flfhmclpack 文件"]
+    EXT -->|"是"| COPY["复制到临时目录并解压"]
+    COPY --> FMT{"format 与 schema 均为 1？"}
+    FMT -->|"否"| E2["不是受支持的 .flfhmclpack"]
+    FMT -->|"是"| NID["生成新 UUID 与目录 id<br/>冲突时依次追加 -2 · -3"]
+    NID --> LAYER["强制 isolated=true<br/>三层全部改写为 private"]
+    LAYER --> FILES["先建 directories 保留空文件夹<br/>再按 files 还原并逐个核对 SHA-256"]
+    FILES --> ALL{"全部校验通过？"}
+    ALL -->|"否"| RB["渐次删除实例 · profile · 模组目录"]
+    RB --> RB2["运行时 jar 留在磁盘<br/>instances.json 未写入"]
+    ALL -->|"是"| DONE["写入 instances.json<br/>提示 整合包已导入"]
+```
 
 ## 十六、实例与层目录对照
 
@@ -270,7 +318,18 @@ FLFHMCLauncher 的整合包格式是 `.flfhmclpack`。它不是普通 zip：除�
 
 层解析以当前实现为准：`mods` 只在值为 `shared` 时落到 `.flfhmcl/mods/general`，其余值都落到实例私有目录；`minecraft` 与 `hmclHome` 只看 `isolated`，隔离时进 `.launcher/实例 UUID/`，不隔离时与 `.flfhmcl` 同级共用全局 `.minecraft` 与 `.hmcl`。`group` 值与 `shared/种类/分组` 目录已实现，但解析路径暂未引用。整合包导入后三层都是 `private`。
 
-> 📷 配图建议：工作区目录树截图，标出 `.flfhmcl`、`.launcher`、`instances`、`mods`、`profile` 五处。（待补图）
+```mermaid
+flowchart TD
+    REQ["启动前解析路径"] --> MOD{"mods 层值等于 shared？"}
+    MOD -->|"是"| GM["模组落 .flfhmcl/mods/general"]
+    MOD -->|"否"| PM["模组落 .flfhmcl/mods/实例 UUID"]
+    REQ --> ISO{"isolated = true？"}
+    ISO -->|"是"| LA[".minecraft 与 .hmcl 落 .launcher/实例 UUID/"]
+    ISO -->|"否"| GL["共用 .flfhmcl 同级的全局 .minecraft 与 .hmcl"]
+    REQ --> GRP["group 值与 shared/种类/分组<br/>已实现，解析路径暂未引用"]
+    IMP["整合包导入后"] -.->|"三层强制 private"| PM
+    IMP -.-> LA
+```
 
 ## 十七、平台、Agent 与 FLF API 的依赖打包
 
@@ -315,7 +374,20 @@ FLF API 的取舍：实例的 `flfApiVersion` 为空时，按 HMCL 版本与 `>=
 
 图标与文件名：默认文件名是 `launch-` 加实例名，Windows 文件名非法字符与控制字符替换为下划线，末尾的点和空格会被裁掉，全空则退回 `instance`。生成过程不写图标，模板 exe 的图标就是最终图标，要换成自己的图标需在分发前替换模板资源。`.flfhmclpack` 的文件图标（`assets/modpack/flfhmclpack.ico`，发布版内为资源 ID `102`）只服务文件关联，与快速启动器图标无关。
 
-> 📷 配图建议：快速启动器生成对话框与更新组件勾选界面截图。（待补图）
+```mermaid
+flowchart LR
+    GEN["生成"] --> CP["复制 FLFQuickStart.exe 模板"]
+    CP --> TR["按页脚算出旧载荷长度并截断"]
+    TR --> AP["追加 JSON 配置，上限 64 MiB"]
+    AP --> FT["写入 8 字节长度与 FLFQS01 标识"]
+    FT --> EXE["launch-实例名.exe"]
+    EXE --> RD["先读内嵌载荷，再找同目录 quickstart.json"]
+    RD --> ARG["取出 command 里的 fabric.addMods"]
+    ARG --> PROTO{"实例走 Fabric Knot 协议？"}
+    PROTO -->|"是"| SCAN["保留 Agent 段，重扫 modsDir 全部 .jar 并按文件名排序"]
+    PROTO -->|"-jar 协议"| NO["命令行无 fabric.addMods，重扫不生效"]
+    SCAN --> RUN["启动并透传子进程退出码"]
+```
 
 ## 十九、版本、升级与降级策略
 
@@ -356,6 +428,19 @@ FLF API 版本是四段式，形如 FLFAPI 主.次.FLFHMCL 大.HMCL 次级，不
 
 玩家侧自检：先比对整包哈希再导入；导入报 `文件校验失败: X` 表示文件被改动或下载不完整，应重新下载而不是改包。
 
-> 📷 配图建议：发布页截图，标出整包 SHA-256、文件大小、Java 要求与签名说明四处。（待补图）
+```mermaid
+flowchart TD
+    REL["发布整包"] --> L1["逐文件：清单 sha256，导入时自动复核"]
+    REL --> L2["整包：发布页公开整包 SHA-256"]
+    REL --> L3["来源：代码签名与固定下载来源"]
+    L2 --> SPLIT{"是否分卷分发？"}
+    SPLIT -->|"是"| MERGE["先合并回单文件<br/>再核对合并后哈希"]
+    SPLIT -->|"否"| SINGLE["直接核对整包哈希"]
+    MERGE --> IMP["导入"]
+    SINGLE --> IMP
+    IMP --> CHK{"导入报 文件校验失败？"}
+    CHK -->|"是"| REDL["重新下载，不要改包"]
+    CHK -->|"否"| OK["导入成功"]
+```
 
 > 外部业务组件不在本文范围；整合包只声明依赖并链接其文档。

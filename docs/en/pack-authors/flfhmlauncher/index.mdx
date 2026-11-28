@@ -9,7 +9,19 @@ toc: true
 
 FLFHMCLauncher's modpack format is `.flfhmclpack`. It is not a plain zip: besides instance files it records versions, layer isolation, components, and launch information. This page covers export, distribution, import, and testing.
 
-> 📷 Suggested image: internal structure of a `.flfhmclpack`, marking metadata, instance directory, mods, runtime, and quick-start launcher. (image pending)
+```mermaid
+flowchart TD
+    PACK["example.flfhmclpack<br/>an ordinary zip container"] --> MANIFEST["flfhmclpack.json<br/>the only entry: format, schema, instance, files, mods"]
+    PACK --> PAYLOAD["payload/ tree"]
+    PAYLOAD --> MC["minecraft/: the instance .minecraft"]
+    PAYLOAD --> HMCL["hmcl/: filtered .hmcl"]
+    PAYLOAD --> MODS["mods/: embedded mod jars"]
+    PAYLOAD --> PROF["profile/: mclhr.json"]
+    PAYLOAD --> RT["runtime/"]
+    RT --> HRT["runtime/hmcl/: the selected HMCL jar"]
+    RT --> ART["runtime/agents/: the selected Agent jar"]
+    PACK -.->|"not in the pack"| QS["FLFQuickStart.exe<br/>generated separately"]
+```
 
 ## 1. What the pack contains
 
@@ -92,7 +104,15 @@ A quick-start launcher can ship with the pack:
 - the process should exit after HMCL closes;
 - never hard-code absolute paths from another machine.
 
-> 📷 Suggested image: quick-start generation dialog and embedded configuration. (image pending)
+```mermaid
+flowchart LR
+    SEL["Select an instance"] --> GEN["Generate the quick-start launcher"]
+    TPL[".flfhmcl/bin/FLFQuickStart.exe"] --> GEN
+    GEN --> EMB["Embed root, instance, modsDir, command, workingDir<br/>baseRoot keeps the workspace relocatable"]
+    EMB --> OUT["launch-INSTANCE-NAME.exe"]
+    OUT --> SCAN["Every start re-scans modsDir<br/>and rebuilds fabric.addMods sorted by filename"]
+    SCAN --> RUN["Start HMCL and pass the exit code through"]
+```
 
 ## 8. Versions and upgrades
 
@@ -209,7 +229,21 @@ Always excluded: `libraries`, `java`, `cache`, `logs`, `bin` under `.flfhmcl`, p
 
 Possible export failures: `cannot create a temporary directory`, `cannot start tar.exe`, `tar.exe failed: X`, `cannot compute SHA-256: X`, `failed to write the modpack: X`. For the first two, check that the temporary directory is writable and that the system `tar.exe` is on `PATH`.
 
-> 📷 Suggested image: the two export wizard pages side by side, marking "Include .hmcl directory" and the cache and logs switches that default to off. (image pending)
+```mermaid
+flowchart TD
+    ST["Export current instance"] --> P1["Page 1: choose .hmcl content"]
+    P1 --> Q1{"Include .hmcl directory?"}
+    Q1 -->|"no"| SKIP["the whole .hmcl stays out of the pack"]
+    Q1 -->|"yes"| TK["packed, but token fields are always stripped<br/>the author cannot disable it"]
+    P1 --> Q2{"cache and logs switches"}
+    Q2 -->|"keep the default off"| OUT["excluded: small, no account names or local paths"]
+    Q2 -->|"opt in"| IN["packed: large, may carry account names and local paths"]
+    SKIP --> P2["Page 2: confirm mods<br/>an empty URL embeds, a URL records only a link"]
+    TK --> P2
+    OUT --> P2
+    IN --> P2
+    P2 --> SAVE["Save as INSTANCE-NAME.flfhmclpack"]
+```
 
 ## 14. User data and token cleanup
 
@@ -249,7 +283,21 @@ The order is fixed:
 
 Rollback: any failure progressively removes the instance directory, the profile directory, and the mods directory, and for isolated instances drops the whole `.launcher/INSTANCE-UUID` tree before reporting "Import failed". Two things are not rolled back: runtime jars already copied into `hmcl` and `agents` stay on disk, and `instances.json` is never written, so no half entry is left behind. Retrying is safe; only the runtime jars need manual care.
 
-> 📷 Suggested image: an import failure toast next to the cleaned `.launcher` directory. (image pending)
+```mermaid
+flowchart TD
+    IN["Drop the file or use Import modpack"] --> EXT{"Correct extension?"}
+    EXT -->|"no"| E1["import failed: not a .flfhmclpack file"]
+    EXT -->|"yes"| COPY["Copy to a temporary directory and extract"]
+    COPY --> FMT{"format and schema both 1?"}
+    FMT -->|"no"| E2["not a supported .flfhmclpack"]
+    FMT -->|"yes"| NID["Generate a new UUID and directory id<br/>conflicts append -2, -3"]
+    NID --> LAYER["Force isolated=true<br/>rewrite all three layers to private"]
+    LAYER --> FILES["Create directories to keep empty folders<br/>then restore files and check every SHA-256"]
+    FILES --> ALL{"Every check passes?"}
+    ALL -->|"no"| RB["Progressively remove the instance, profile, and mods directories"]
+    RB --> RB2["Runtime jars stay on disk<br/>instances.json is never written"]
+    ALL -->|"yes"| DONE["Write instances.json<br/>report Modpack imported"]
+```
 
 ## 16. Instance and layer directory reference
 
@@ -270,7 +318,18 @@ Rollback: any failure progressively removes the instance directory, the profile 
 
 Layer resolution follows the current implementation: `mods` lands in `.flfhmcl/mods/general` only when the mode is `shared`, and in the private instance directory otherwise; `minecraft` and `hmclHome` look at `isolated` alone, going under `.launcher/INSTANCE-UUID/` when isolated and sharing the global `.minecraft` and `.hmcl` beside `.flfhmcl` otherwise. The `group` value and the `shared/KIND/GROUP` directory exist but are not referenced by path resolution yet. After import all three layers are `private`.
 
-> 📷 Suggested image: workspace directory tree screenshot marking `.flfhmcl`, `.launcher`, `instances`, `mods`, and `profile`. (image pending)
+```mermaid
+flowchart TD
+    REQ["Path resolution before launch"] --> MOD{"mods layer equals shared?"}
+    MOD -->|"yes"| GM["mods land in .flfhmcl/mods/general"]
+    MOD -->|"no"| PM["mods land in .flfhmcl/mods/INSTANCE-UUID"]
+    REQ --> ISO{"isolated = true?"}
+    ISO -->|"yes"| LA[".minecraft and .hmcl land in .launcher/INSTANCE-UUID/"]
+    ISO -->|"no"| GL["share the global .minecraft and .hmcl beside .flfhmcl"]
+    REQ --> GRP["group and shared/KIND/GROUP<br/>implemented, not referenced by path resolution yet"]
+    IMP["After a modpack import"] -.->|"all three layers forced to private"| PM
+    IMP -.-> LA
+```
 
 ## 17. Platform, Agent, and FLF API packaging
 
@@ -315,7 +374,20 @@ Limits and caveats:
 
 Icon and filename: the default filename is `launch-` plus the instance name, Windows-illegal characters and control characters become underscores, trailing dots and spaces are trimmed, and an empty result falls back to `instance`. Generation does not write an icon, so the template executable's icon is the final icon; replacing it means replacing the template resource before distribution. The `.flfhmclpack` file icon (`assets/modpack/flfhmclpack.ico`, resource id `102` in release builds) only serves file association and is unrelated to the quick-start icon.
 
-> 📷 Suggested image: quick-start generation dialog with the update-component checkboxes. (image pending)
+```mermaid
+flowchart LR
+    GEN["Generate"] --> CP["Copy the FLFQuickStart.exe template"]
+    CP --> TR["Read the old payload length from the footer and truncate"]
+    TR --> AP["Append the JSON configuration, capped at 64 MiB"]
+    AP --> FT["Write the 8-byte length and the FLFQS01 marker"]
+    FT --> EXE["launch-INSTANCE-NAME.exe"]
+    EXE --> RD["Read the embedded payload, then quickstart.json beside the executable"]
+    RD --> ARG["Take fabric.addMods from the command line"]
+    ARG --> PROTO{"Does the instance use the Fabric Knot protocol?"}
+    PROTO -->|"yes"| SCAN["Keep the Agent segment, re-scan every .jar in modsDir, sort by filename"]
+    PROTO -->|"-jar protocol"| NO["No fabric.addMods on the command line, so the rescan does nothing"]
+    SCAN --> RUN["Start and pass the child exit code through"]
+```
 
 ## 19. Versions, upgrades, and downgrades
 
@@ -356,6 +428,19 @@ Suggested release flow:
 
 Self-check for players: compare the whole-pack hash before importing. A `file checksum failed: X` during import means the file changed or the download is incomplete, so download again instead of editing the pack.
 
-> 📷 Suggested image: release page marking the whole-pack SHA-256, file size, Java requirement, and signing note. (image pending)
+```mermaid
+flowchart TD
+    REL["Ship the pack"] --> L1["Per file: sha256 in the manifest, rechecked on import"]
+    REL --> L2["Whole pack: publish the pack SHA-256 on the release page"]
+    REL --> L3["Provenance: code signing plus a fixed download source"]
+    L2 --> SPLIT{"Split distribution?"}
+    SPLIT -->|"yes"| MERGE["Merge back into one file first<br/>then verify the merged hash"]
+    SPLIT -->|"no"| SINGLE["Verify the pack hash directly"]
+    MERGE --> IMP["Import"]
+    SINGLE --> IMP
+    IMP --> CHK{"Import reports file checksum failed?"}
+    CHK -->|"yes"| REDL["Download again, do not edit the pack"]
+    CHK -->|"no"| OK["Import succeeds"]
+```
 
 > External business components are outside this page; packs declare dependencies and link to their documentation.

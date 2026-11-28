@@ -9,7 +9,21 @@ toc: true
 
 FLFHMCLauncher is the shell around FLFHMCL, implemented in C++ with static Qt. It is not the Java runtime and does not load Fabric classes. It manages instances, components, commands, updates, and process lifetime.
 
-> 📷 Suggested image: overall architecture from bootstrap to GUI/CLI, Core, and QuickStart, plus the relationship between Core, Workspace, Installer, and Launcher. (image pending)
+```mermaid
+flowchart TD
+    EXE["FLFHMCLauncher.exe<br/>bootstrap"] --> GUI["GUI main window"]
+    GUI --> CORE["FLFLauncherCore<br/>static core library"]
+    CLI["FLFLauncherCli.exe<br/>CLI"] --> CORE
+    CORE --> WS["Workspace<br/>paths and instances"]
+    CORE --> INST["Installer<br/>install, repair, verify"]
+    CORE --> LAUNCH["Launcher<br/>launch plan and process hosting"]
+    CORE --> PACK["Modpack<br/>import and export"]
+    WS --> STORE[".flfhmcl<br/>config, libraries, instances, logs"]
+    INST --> SRC["metadata and download sources"]
+    LAUNCH --> QS["FLFQuickStart.exe<br/>no Qt"]
+    LAUNCH --> JAVA["java.exe"]
+    QS --> JAVA
+```
 
 ## 1. Design goals
 
@@ -117,7 +131,23 @@ At runtime it:
 
 It must ensure that mod additions/removals need no regeneration, and that both Java and the quick-start process exit after HMCL closes. An earlier implementation leaked a non-daemon Swing timer; that is fixed.
 
-> 📷 Suggested image: quick-start sequence from payload read to exit, marking modsDir rescan and child wait. (image pending)
+```mermaid
+flowchart TD
+    START["Start FLFQuickStart.exe"] --> TAIL["Read the last 16 bytes<br/>config length and FLFQS01"]
+    TAIL -->|"embedded payload valid"| CFG["Parse the JSON config"]
+    TAIL -->|"invalid"| SIDECAR{"quickstart.json next to the EXE?"}
+    SIDECAR -->|"yes"| CFG
+    SIDECAR -->|"no"| FAIL["MessageBoxW and return 1"]
+    CFG -->|"command missing"| FAIL
+    CFG --> ARGV["Parse command with CommandLineToArgvW"]
+    ARGV --> MODS["Rescan modsDir<br/>regular .jar files only, sorted"]
+    MODS --> AGENT{"agent path found in -Dfabric.addMods?"}
+    AGENT -->|"yes"| JOIN["Rebuild agent;jar1;jar2 and re-quote with quoteArg"]
+    AGENT -->|"no"| SPAWN["CreateProcessW starts Java"]
+    JOIN --> SPAWN
+    SPAWN --> WAIT["WaitForSingleObject on the child"]
+    WAIT --> CODE["GetExitCodeProcess returns the exit code unchanged"]
+```
 
 ## 8. Modpacks
 
@@ -250,7 +280,25 @@ Three tolerances apply: while the GUI is running it holds files in `bin`, `MoveF
 
 For self-update the bootstrap downloads nothing; it only guarantees that a different EXE triggers a fresh extraction. After a new build overwrites the release EXE, the `offset/size` in the footer changes, the `.payload` marker no longer matches, and the next run extracts into `bin` again. The overwrite must happen after the GUI has fully exited, because the mapped EXE and DLLs cannot be replaced; `.flfhmcl` is not part of the payload, so instances, libraries, and logs survive an EXE replacement.
 
-> 📷 Suggested image: structure of the EXE tail, marking the bootstrap, payload entries, and the 24-byte footer. (image pending)
+```mermaid
+flowchart TD
+    EXE["Release EXE<br/>bootstrap PE + payload + 24-byte footer"] --> READ["Read the last 24 bytes of the module file"]
+    READ --> CHECK{"FLFEND01 magic, non-zero size, offset + size within bounds?"}
+    CHECK -->|"no"| DAMAGED["Treat the payload as corrupt"]
+    CHECK -->|"yes"| PAY["Read the payload<br/>verify FLFPAY01 and version 1"]
+    PAY --> ENTRIES{"entry name contains a separator, a colon, or .. ?"}
+    ENTRIES -->|"yes"| DAMAGED
+    ENTRIES -->|"no"| CURRENT{"marker and every entry present?"}
+    CURRENT -->|"yes"| SKIP["Skip extraction"]
+    CURRENT -->|"no"| WRITE["Write each target.tmp<br/>then MoveFileExW atomic replace"]
+    MARK["Write the .payload marker<br/>offset-size"]
+    WRITE --> MARK
+    MARK --> LAUNCH["Set FLFHMCL_LAUNCHER_DIR<br/>start FLFHMCLauncherApp.exe"]
+    SKIP --> LAUNCH
+    DAMAGED --> FALLBACK{"an app already exists in bin?"}
+    FALLBACK -->|"yes"| LAUNCH
+    FALLBACK -->|"no"| MSG["MessageBoxW and return 1"]
+```
 
 ## 16. Workspace path resolution
 
@@ -280,6 +328,25 @@ For self-update the bootstrap downloads nothing; it only guarantees that a diffe
 A `Layer` combines `mode` and `group`, with `mode` being `private`, `shared`, or `group` and `group` defaulting to `default`; an unknown mode falls back to `private` on load, and group names pass through `sanitizeId`, keeping only letters, digits, and hyphens. When an instance has `isolated` set, both `.minecraft` and `.hmcl` move under `.launcher/<uuid>/`, fully separated from the global directories.
 
 Each entry in `instances.json` stores `uuid`, `id`, `name`, `gameVersion`, `loader`, `loaderVersion`, `javaPath`, `agentVersion`, `hmclVersion`, `hmclSha1`, `flfApiVersion`, three `Layer` records, `isolated`, `launchBehavior`, and `createdAt`. Loading performs three compatibility steps: an old id directory is renamed to the uuid directory; an old `instances/<uuid>/mclhr.json` is copied to `profile/<uuid>/`; and `flfApiVersion` migrates to the four-part naming scheme (for example `1.2.0-hmcl3.16` becomes `1.2.2.16`). Corrupt JSON clears the list and startup continues instead of blocking the UI.
+
+```mermaid
+flowchart TD
+    INIT["Workspace.initialize"] --> LAYOUT["ensureLayout<br/>bin, config, libraries, java, javafx, fabric, hmcl, tools, instances, cache, logs, crash-report"]
+    LAYOUT --> CONFIG["Read config/launcher.json and config/instances.json"]
+    CONFIG --> UUID{"uuid empty?"}
+    UUID -->|"yes"| BYID["instance directory falls back to id"]
+    UUID -->|"no"| BYUUID["instance directory uses uuid"]
+    BYID --> MODE{"Layer mode is shared?"}
+    BYUUID --> MODE
+    MODE -->|"yes"| SHARED["mods directory mods/general"]
+    MODE -->|"no"| PRIVATE["mods directory mods/uuid"]
+    SHARED --> ISO{"instance isolated?"}
+    PRIVATE --> ISO
+    ISO -->|"yes"| ISOLATED[".minecraft and .hmcl move under .launcher/uuid"]
+    ISO -->|"no"| GLOBAL[".minecraft and .hmcl stay beside the workspace"]
+    ISOLATED --> UTF8["paths go through pathUtf8 into JSON and JVM arguments"]
+    GLOBAL --> UTF8
+```
 
 ## 17. Installer: download, mirrors, verification, atomic replace, rollback
 
@@ -326,6 +393,39 @@ Data sources are hard-coded, so switching mirrors means changing the base URL:
 All downloads go through `httpDownload`. It probes chunk support with `Range: bytes=0-0`: when ranges work, the total is at least 4 MiB, and no resumable `.part` exists, four threads take one range each (the status must be 206); otherwise a single stream writes `<target>.part`, and a later run resumes with `Range: bytes=<existing size>-`. Everything ends in `fs::rename(part, dest)`; if an existing target makes the rename fail, the target is removed and the rename retried, so the final path never holds a partial file. A progress callback returning false cancels: the single-stream path deletes `.part`, the chunked path deletes every chunk.
 
 The install pipeline is not transactional. On failure the finished stages survive (Java, verified libraries, the HMCL jar) and a rerun reuses them, so returning to a clean state means deleting the instance directory and installing again. The real rollback lives in modpack import: `cleanupImported` removes the instance directory, the profile, the mods directory, and the isolated directory, so a failure never leaves a half-created instance.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Prepare
+    Prepare : prepare directories 5%
+    Prepare --> Java
+    Java : Java 5%
+    Java --> JavaFX
+    JavaFX : JavaFX 10-25%
+    JavaFX --> Fabric
+    Fabric : Fabric profile and libraries 30-60%
+    Fabric --> Deps
+    Deps : HMCL dependencies 62-66%
+    Deps --> Hmcl
+    Hmcl : HMCL jar 75-88%
+    Hmcl --> Agent
+    Agent : Agent 88-93%
+    Agent --> Api
+    Api : FLF API 93-95%
+    Api --> Title
+    Title : FLF Title 96-97%
+    Title --> Manifest
+    Manifest : manifest and validation 98-100%
+    Manifest --> [*]
+    Java --> Failed : download or extract failure
+    Hmcl --> Failed : SHA-1 mismatch
+    Agent --> Failed : SHA-256 mismatch
+    Failed : failure keeps finished stages, a rerun reuses them
+    Failed --> [*]
+    Hmcl --> Cancelled : progress callback cancels
+    Cancelled : cancellation deletes .part and every chunk
+    Cancelled --> [*]
+```
 
 ## 18. Launch plan: argument order and code flow
 
@@ -375,6 +475,36 @@ Code flow:
 
 The order is not arbitrary: the JVM parses `-javaagent` and the `-D` options before it decides on a main class, and everything after `-cp` or `-jar` is a game argument; in Knot mode HMCL is loaded by Fabric, so `-Dfabric.addMods` must carry both the agent jar and the instance mods, otherwise only the agent takes effect; `--flf-instance` only appears in quick-start launchers, while a GUI launch keeps the normal HMCL interface. Two lighter entry points exist as well: `launchInstance` fires with `QProcess::startDetached` and returns, and `writeQuickStart` only generates a quick-start launcher without starting a process.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant MW as MainWindow
+    participant LS as launcher.cpp
+    participant JV as java.exe
+    MW->>MW: take the selected instance, write instance.json and launch.json when missing
+    opt pre-launch validation enabled
+        MW->>LS: validateInstanceFiles
+        LS-->>MW: on failure switch to beginRepair
+    end
+    opt pre-launch update check enabled
+        MW->>MW: compare component versions in the background, toast only
+    end
+    MW->>LS: launchInstanceManaged
+    LS->>LS: create the game and HMCL config directories, run repairHmclAcl
+    LS->>LS: pick a LaunchProvider, Knot first and legacy as fallback
+    LS->>LS: buildLaunchPlan orders the 12 common arguments and the protocol tail
+    LS-->>MW: LaunchPlan
+    MW->>LS: create the pipe and start the process
+    LS->>JV: CreateProcessW merges stdout and stderr
+    loop read output
+        JV-->>LS: 4096-byte chunks
+        LS-->>MW: queued callback appends output
+    end
+    JV-->>LS: WaitForSingleObject waits for exit
+    LS-->>MW: exit code
+    MW->>MW: append logs/instance-uuid.log, report a crash on a non-zero code
+```
+
 ## 19. Quick-start launcher: payload, rescan, quoting, process
 
 The quick-start launcher is a standalone EXE with its configuration appended at the end of the file:
@@ -409,7 +539,25 @@ Quoting follows the MSVCRT rules: an empty argument becomes a pair of double quo
 
 Starting and waiting takes four steps: `CreateProcessW(nullptr, command buffer, ..., CREATE_NO_WINDOW, workingDir)`; close `hThread`; `WaitForSingleObject(hProcess, INFINITE)`; read `GetExitCodeProcess` and return the child exit code unchanged. A missing `command` or a failed `CreateProcessW` shows a `MessageBoxW` and returns 1.
 
-> 📷 Suggested image: quick-start sequence from reading the payload and rescanning the mods directory to waiting for Java to exit. (image pending)
+```mermaid
+sequenceDiagram
+    autonumber
+    participant QS as FLFQuickStart.exe
+    participant CFG as embedded config
+    participant MD as modsDir
+    participant JV as java.exe
+    QS->>CFG: read the last 16 bytes, take the length and FLFQS01
+    alt embedded payload invalid
+        QS->>CFG: fall back to quickstart.json next to the EXE
+    end
+    QS->>MD: non-recursive directory_iterator scan
+    MD-->>QS: regular .jar files only, sorted by path
+    QS->>QS: rebuild -Dfabric.addMods and re-quote with quoteArg
+    QS->>JV: CreateProcessW starts the child
+    QS->>JV: WaitForSingleObject INFINITE
+    JV-->>QS: GetExitCodeProcess
+    QS-->>QS: return the child exit code unchanged
+```
 
 ## 20. Modpack format: reading and writing `.flfhmclpack`
 
@@ -445,6 +593,27 @@ Import: copy the pack into a temporary directory and extract it; verify format a
 
 The safety boundary is `safeRelative`: absolute paths and segments equal to `..` or `.` are rejected, and building `payload/<role>/<relative>` keeps every write inside the role root.
 
+```mermaid
+flowchart TD
+    subgraph EXPORT["export"]
+        E1["Create a temporary directory"] --> E2["Collect files by role and compute SHA-256"]
+        E2 --> E3["Filter the HMCL directory by selection<br/>logs, cache, config, and state can be excluded"]
+        E3 --> E4["Scrub keys named token, password, secret, credential, or session"]
+        E4 --> E5["Write flfhmclpack.json"]
+        E5 --> E6["Zip with tar.exe and copy to the target path"]
+    end
+    subgraph IMPORT["import"]
+        I1["Copy into a temporary directory and extract"] --> I2["Verify format and schema"]
+        I2 --> I3["Mint a new uuid and a non-conflicting id<br/>force isolated and all three layers private"]
+        I3 --> I4["Create empty directories from directories<br/>write files from files after SHA-256 checks"]
+        I4 --> I5["Write runtime into hmcl and agents<br/>download link-only mods from url and verify"]
+        I5 --> I6["Keep modpack.json and register the instance"]
+    end
+    E6 -.->|"pack file"| I1
+    I2 -->|"failure"| RB["cleanupImported rollback"]
+    I4 -->|"failure"| RB
+```
+
 ## 21. Qt UI threading model
 
 The UI is plain Qt Widgets, and every long task leaves the main thread through one of two channels:
@@ -457,6 +626,26 @@ Stale results are discarded with tokens: `agentToken_`, `hmclToken_`, `fabricTok
 Hard rules: a worker never touches a QWidget and never reads mutable containers of `Workspace`; it takes an `Instance` snapshot instead; only `QString`, `QStringList`, and value types cross threads; the output callback of `launchInstanceManaged` also invokes back to the main thread before appending to `runLog_` and to the log file; `QTimer::singleShot(0)` defers a modpack dropped onto the exe, and `singleShot(1500)` deploys CrashTracker on first run.
 
 Launch behavior has three modes, `keep`, `hide`, and `exit`; the instance setting wins and an empty value inherits the global one. All three run only after `launchInstanceManaged` returns success, so a failed start never hides the window.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as UI thread
+    participant WK as worker thread
+    participant WS as Workspace
+    Note over UI,WK: install, repair, and launch output use std::thread, while modpack import and export use QtConcurrent
+    UI->>WK: copy an Instance snapshot and start the task
+    WK->>WS: read paths and config snapshots only
+    WK->>WK: download, install, or validate
+    WK->>UI: QMetaObject.invokeMethod queued delivery
+    UI->>UI: compare agentToken, hmclToken, and other tokens
+    alt token already stale
+        UI->>UI: drop the result
+    else token matches
+        UI->>UI: update widgets and append to runLog
+    end
+    UI->>UI: QPointer guards dialogs, so a closed dialog is never touched
+```
 
 ## 22. Logging, CrashTracker, and CLI exit codes
 
@@ -486,6 +675,23 @@ Exit codes are what scripts rely on:
 | 2 | instance not found, or no Fabric loader available |
 | 3 | operation failed: install, repair, validation, pack import or export, quick-start writing, or starting Java |
 | 4 | `launch` started but the Java child exited with a non-zero code |
+
+```mermaid
+flowchart TD
+    ARGV["FLFLauncherCli arguments"] --> INIT["Workspace.initialize"]
+    INIT --> CMD{"subcommand valid?"}
+    CMD -->|"no"| E1["exit code 1<br/>print usage"]
+    CMD -->|"yes"| EXEC["run the subcommand"]
+    EXEC --> MISS{"instance or Fabric loader available?"}
+    MISS -->|"no"| E2["exit code 2"]
+    MISS -->|"yes"| OP{"operation succeeded?"}
+    OP -->|"no"| E3["exit code 3"]
+    OP -->|"yes"| LAUNCH{"subcommand is launch?"}
+    LAUNCH -->|"no"| E0["exit code 0"]
+    LAUNCH -->|"yes"| CHILD{"Java child exited 0?"}
+    CHILD -->|"yes"| E0
+    CHILD -->|"no"| E4["exit code 4"]
+```
 
 ## 23. CMake, build, and release
 
@@ -519,6 +725,26 @@ cmake --build build --target package-release
 `package-release` is a custom target that depends on the bootstrap, the GUI, and the quick-start launcher, and it runs `scripts/package-release.ps1 -BuildDir`: it checks `FLFHMCLauncherBootstrap.exe`, `FLFHMCLauncherApp.exe`, `FLFQuickStart.exe`, `spdlog.dll`, and the icon; finds the newest VC Redist through `vswhere` and picks `msvcp140*` and `vcruntime140*`; then writes the single-file EXE following the footer layout. Pull the submodules first with `git submodule update --init --recursive` (HiBerGUILibCPP, CommonLoggerCPP, CrashTrackerHandleLibCPP). The install rules ship only the release EXE and `flfhmclpack.ico`; the rest of the tree is created on first run.
 
 Minimal post-build check: run `build\FLFHMCLauncher.exe` and confirm `.flfhmcl/bin` appears and the GUI opens; then run `build\FLFLauncherCli.exe selftest` and confirm the metadata sources are reachable.
+
+```mermaid
+flowchart TD
+    SCRIPT["scripts/build.ps1"] --> VC["vcvars64.bat"]
+    VC --> CONF["CMake configure<br/>Release, static Qt, vcpkg x64-windows"]
+    CONF --> BUILD["cmake --build"]
+    BUILD --> T1["FLFLauncherCore"]
+    BUILD --> T2["FLFHMCLauncherApp"]
+    BUILD --> T3["FLFHMCLauncherBootstrap"]
+    BUILD --> T4["FLFLauncherCli"]
+    BUILD --> T5["FLFQuickStart"]
+    T2 --> PACK["package-release: scripts/package-release.ps1"]
+    T3 --> PACK
+    T5 --> PACK
+    PACK --> CHECK["Check three EXEs, spdlog.dll, and the icon"]
+    CHECK --> REDIST["vswhere finds the newest VC Redist<br/>pick msvcp140 and vcruntime140"]
+    REDIST --> ASSEMBLE["Assemble the single-file EXE with the footer layout"]
+    ASSEMBLE --> OUT["FLFHMCLauncher.exe"]
+    OUT --> VERIFY["Verify: extraction creates bin and CLI selftest passes"]
+```
 
 ## 24. Test matrix
 

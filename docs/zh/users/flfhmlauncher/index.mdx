@@ -30,7 +30,14 @@ FLFHMCLauncher 是 FLFHMCL 的外壳和高阶入口。它不负责 Fabric 运行
 - 足够的磁盘空间；
 - 如被安全软件拦截，先核对文件来源和校验和。
 
-> 📷 配图建议：首次运行释放目录的截图，标出 `.flfhmcl/bin` 与 GUI 文件。（待补图）
+```mermaid
+flowchart TD
+    RUN["双击 FLFHMCLauncher.exe"] --> CHECK{"尾部载荷与 .payload 戳记一致，且文件齐全"}
+    CHECK -->|"否，首次运行或文件缺失"| EXTRACT["释放 GUI、FLFQuickStart.exe、spdlog 与 VC++ 运行库到 .flfhmcl/bin"]
+    EXTRACT --> STAMP["写入 .payload 戳记"]
+    STAMP --> GUI["拉起 GUI，进入主界面"]
+    CHECK -->|"是"| GUI
+```
 
 ## 二、界面导览
 
@@ -159,7 +166,23 @@ CLI 适合脚本与服务器环境；GUI 适合日常使用。
 | 崩溃对话框 | HMCL 非正常退出时 | 根因、建议、退出码与异常摘要 | **修复实例**、**复制诊断**、**打开报告文件夹** |
 | 帮助与关于页 | 顶部 **帮助** | 简要说明与项目入口 | **打开项目主页** |
 
-> 📷 配图建议：启动页全图，用编号标注顶部导航、操作卡片、实例卡片与状态行四处。（待补图）
+```mermaid
+flowchart TD
+    NAV["① 顶部导航：启动、新建、设置、帮助，右侧切换深色与浅色"]
+    subgraph PAGE["启动页"]
+        SIDE["② 左侧边栏：页面导航，底部显示 HMCL 版本"]
+        CARD["③ 操作卡片：新建、启动、模组管理、打开目录、创建快速启动器、导入导出整合包、更新组件、删除"]
+        LIST["④ 实例列表：一个实例一张卡片，单击选中，卡片自带启动"]
+        STATUS["⑤ 状态行：实例总数，无实例时提示先创建"]
+        SIDE --> CARD
+        CARD --> LIST
+        LIST --> STATUS
+    end
+    NAV --> SIDE
+    NAV -->|"新建"| CREATE["新建实例页：名称、四个版本选择、隔离开关，每行带刷新与停止"]
+    NAV -->|"设置"| SETTING["设置页：启动前校验、启动前检查更新、启动后行为，勾选即保存"]
+    NAV -->|"帮助"| HELP["帮助与关于页：简要说明与项目入口"]
+```
 
 ## 十三、首次运行走查
 
@@ -203,7 +226,19 @@ CLI 适合脚本与服务器环境；GUI 适合日常使用。
 - **删除之后**：删库类模组前确认没有其它模组依赖它；生产实例不要放 Test 模组。
 - **文件名**：优先纯 ASCII；含中文时确认日志里路径编码正常。
 
-> 📷 配图建议：模组管理页，标出勾选框、导入模组、删除与返回按钮，以及拖入多个 jar 的状态。（待补图）
+```mermaid
+flowchart TD
+    DROP["拖入多个 jar 或点导入模组"] --> OVER["覆盖同名文件，不生成备份"]
+    OVER --> DIR[".flfhmcl/mods/uuid，模组层为 shared 时改用 .flfhmcl/mods/general"]
+    DIR --> LIST["列表只显示 .jar 与 .jar.disabled"]
+    LIST -->|"勾选"| TOGGLE["重命名加或去掉 .disabled 后缀，文件位置不变"]
+    LIST -->|"启动"| ADD["Agent jar 与全部 .jar 拼进 -Dfabric.addMods 交给 KnotClient"]
+    ADD --> LOAD{"Fabric 加载是否通过"}
+    LOAD -->|"通过"| OK["模组生效，下次启动按新目录重扫"]
+    LOAD -->|"重复模组或类冲突"| DUP["按日志确认冲突来自哪个文件"]
+    DUP --> FIX["先删或禁用旧版本，再放新版本"]
+    FIX --> DIR
+```
 
 ## 十六、快速上手：创建、命名与图标、模组重扫、关闭行为
 
@@ -224,7 +259,18 @@ CLI 适合脚本与服务器环境；GUI 适合日常使用。
 - **导出**：两页向导。第一页选 `.hmcl` 内容（`.hmcl`、配置、状态、缓存、日志、`.minecraft/logs` 与 `crash-reports`；缓存和日志默认关；`accessToken`、`refreshToken`、`clientToken`、`password`、`secret`、`session` 自动清理）。第二页确认模组：留空嵌入 jar，填 URL 只导出链接，导入时按 `sha256` 下载校验。
 - **建议**：升级前先导出；大实例导出前清掉截图与资源缓存；公开分发前仍要自查包里其它文件。
 
-> 📷 配图建议：导出向导第二页“确认模组”，展示模组文件列与下载链接列，并标注“留空=嵌入”。（待补图）
+```mermaid
+flowchart TD
+    START["导出向导第二页：确认模组"] --> ROW{"这一行的链接列是否留空"}
+    ROW -->|"留空"| EMBED["把 jar 嵌入包内，可离线恢复，包体更大"]
+    ROW -->|"填 URL"| LINK["只记录下载链接，导入时按 sha256 下载校验"]
+    EMBED --> PACK["生成 .flfhmclpack"]
+    LINK --> PACK
+    PACK --> IMP["导入：生成新 UUID，强制 isolated=true"]
+    IMP --> SHA{"逐文件 SHA-256 是否匹配"}
+    SHA -->|"匹配"| DONE["恢复目录与运行时 jar，写入 instances.json 并选中新实例"]
+    SHA -->|"不匹配"| FAIL["报 sha256 不匹配，重新获取原包或检查链接是否可访问"]
+```
 
 ## 十八、隔离与目录布局
 
@@ -255,7 +301,21 @@ CLI 适合脚本与服务器环境；GUI 适合日常使用。
 
 界面能直接切的是新建实例时的隔离开关；`mods`、`minecraft`、`hmclHome` 三层写在 `instances.json` 的同名字段（`mode` 取 `private` / `shared` / `group`，可带 `group`），改完重启生效。切换隔离方式前先备份存档与配置。
 
-> 📷 配图建议：目录树示意图，左列 `.flfhmcl` 内部结构，右列 `.launcher\<uuid>` 与同级 `.minecraft` 的对比。（待补图）
+```mermaid
+flowchart TD
+    ROOT["启动器目录：EXE 所在位置"] --> FLFH[".flfhmcl：启动器自身数据"]
+    ROOT --> ISO[".launcher/uuid：隔离实例专用目录"]
+    ROOT --> SHARED["同级 .minecraft 与 .hmcl：未隔离实例共用"]
+    FLFH --> BIN["bin：GUI、FLFQuickStart.exe、运行库、.payload"]
+    FLFH --> CONFIG["config：launcher.json 与 instances.json"]
+    FLFH --> PROFILE["instances/uuid 与 profile/uuid：实例清单与启动配置"]
+    FLFH --> MODSDIR["mods/uuid 私有，mods/general 共享"]
+    FLFH --> RUNTIME["hmcl、agents、libraries、java、javafx、fabric：共享运行时"]
+    FLFH --> LOGSDIR["logs 与 crash-report"]
+    FLFH --> TOOLS["tools/CrashTracker"]
+    ISO --> MCISO[".minecraft：隔离实例的游戏目录"]
+    ISO --> HMCLISO[".hmcl：隔离实例的 HMCL 主目录"]
+```
 
 ## 十九、日志、崩溃与修复
 
