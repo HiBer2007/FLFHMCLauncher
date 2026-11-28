@@ -3,7 +3,7 @@ title: FLFHMCLauncher 整合包作者指南
 description: .flfhmclpack 的导出、导入、层隔离、快速启动器分发与测试。
 audience: pack-authors
 package: flfhmlauncher
-version: 0.3.11
+version: 0.3.12
 toc: true
 ---
 
@@ -67,8 +67,8 @@ flowchart TD
 
 ```text
 <实例>/
-├─ .minecraft/       游戏与模组
-├─ .hmcl/            HMCL 配置
+├─ .minecraft/       Minecraft 实例目录
+├─ .hmcl/            HMCL 工作目录（配置）
 ├─ profile/          启动配置
 ├─ logs/             日志
 └─ crash-report/     崩溃报告
@@ -171,7 +171,7 @@ flowchart LR
 | 归档内路径 | 内容 | 何时写入 |
 |---|---|---|
 | `flfhmclpack.json` | 整包清单，唯一入口 | 始终写入 |
-| `payload/minecraft/` | 实例的 `.minecraft` 树 | 实例存在游戏目录 |
+| `payload/minecraft/` | 实例的 `.minecraft` 树 | 实例存在 Minecraft 实例目录 |
 | `payload/hmcl/` | 过滤后的 `.hmcl` 树 | 勾选“包含 .hmcl 目录” |
 | `payload/mods/` | 散装模组 jar | 该模组选择嵌入 |
 | `payload/profile/` | `mclhr.json` 等启动配置 | 实例存在 profile 目录 |
@@ -223,7 +223,7 @@ flowchart LR
 | state（窗口与用户状态） | 开 | 进包，体积很小 |
 | cache（缓存） | 关 | 体积大，导入后重下即可 |
 | logs（日志） | 关 | 可能含账户名与本机路径 |
-| 包含 .minecraft/logs 与 crash-reports | 关 | 只影响游戏目录下这两类；日志常含账号名与本机路径 |
+| 包含 .minecraft/logs 与 crash-reports | 关 | 只影响 `.minecraft` 下这两类；日志常含账号名与本机路径 |
 
 必然排除 `.flfhmcl` 下的 `libraries`、`java`、`cache`、`logs`、`bin` 与启动器本体，它们按元数据补齐；快速启动器也不在包里，需单独生成。
 
@@ -311,8 +311,8 @@ flowchart TD
 | 私有模组 | `.flfhmcl/mods/实例 UUID/` | 默认位置，FLF API jar 也在这里 |
 | 共享模组 | `.flfhmcl/mods/general/` | 层模式为 `shared` 时使用 |
 | 共享目录 | `.flfhmcl/shared/种类/分组/` | 分组模式落点，分组名会做过滤 |
-| 隔离游戏目录 | `.launcher/实例 UUID/.minecraft/` | `isolated=true` 时使用 |
-| 隔离启动器目录 | `.launcher/实例 UUID/.hmcl/` | 同上 |
+| 隔离 Minecraft 实例目录 | `.launcher/实例 UUID/.minecraft/` | `isolated=true` 时使用 |
+| 隔离 HMCL 工作目录 | `.launcher/实例 UUID/.hmcl/` | 同上 |
 | 运行时 | `.flfhmcl` 下的 `bin`、`hmcl`、`agents`、`fabric`、`java`、`javafx`、`libraries` | 跨实例共用 |
 | 启动器日志 | `.flfhmcl/logs/launcher.log` | 排障第一站 |
 
@@ -344,7 +344,7 @@ flowchart TD
 
 FLF API 的取舍：实例的 `flfApiVersion` 为空时，按 HMCL 版本与 `>=` 形式的 Agent 下限自动挑一个可用版本；写成 `none` 表示不装，并顺手删掉模组目录里其他 `flf-api-` 开头的 jar。安装新版本时同样会清理其他 `flf-api-` jar 与历史命名的旧 jar，避免同版本双份类与重复注册。不要把这些 jar 再打进业务模组。
 
-启动协议分两套，作者只需记住门槛：Agent 不低于 `2.1.6` 时直接以 Fabric Knot 启动，把 Agent 与模组目录下的 jar 一起放进 `fabric.addMods`；更低版本走 `-jar` 方式，由 Agent 拦截入口。两套都会传入实例 id、游戏目录、加载器版本、清单路径、profile 目录与工作区根。
+启动协议分两套，作者只需记住门槛：Agent 不低于 `2.1.6` 时直接以 Fabric Knot 启动，把 Agent 与模组目录下的 jar 一起放进 `fabric.addMods`；更低版本走 `-jar` 方式，由 Agent 拦截入口。两套都会传入实例 id、Minecraft 实例目录（`-Dflfhmcl.gameDir`）、加载器版本、清单路径、profile 目录与工作区根。
 
 启动前校验默认开启，会依次检查 Java、Agent、HMCL jar 与其 SHA-1、`mclhr.json` 与其 SHA-256、清单里的库条目与 Fabric Loader 版本，错误串包括 `Java 路径不存在`、`mclhr 清单哈希不匹配`、`mclhr 清单包含重复库: X`、`mclhr 清单解析失败: X`。包里带着这些哈希更稳妥，但手改实例元数据会直接导致启动被拦。
 

@@ -3,7 +3,7 @@ title: FLFHMCLauncher Developer Documentation
 description: C++/Qt architecture, bootstrap, workspace, installer, launch plans, quick-start launcher, modpacks, and release builds.
 audience: developers
 package: flfhmlauncher
-version: 0.3.11
+version: 0.3.12
 toc: true
 ---
 
@@ -99,7 +99,7 @@ Long tasks must support cancellation; cancellation removes temporary files witho
 - `-Dfabric.addMods`;
 - the HMCL jar;
 - the Knot main class;
-- game directory/instance arguments.
+- the `--gameDir` (HMCL working directory) and instance arguments.
 
 The Knot provider is used by current FLFHMCL; the legacy provider handles old `-jar` launches. Argument order is significant.
 
@@ -314,8 +314,8 @@ flowchart TD
 | Instance profile | `.flfhmcl/profile/<uuid>` | `profileDir` |
 | mclhr manifest | `.flfhmcl/profile/<uuid>/mclhr.json` | `manifestPath` |
 | Mods directory | shared mode `.flfhmcl/mods/general`, otherwise `.flfhmcl/mods/<uuid>` | `resolveMods` |
-| Game directory | isolated instance `../.launcher/<uuid>/.minecraft`, otherwise `../.minecraft` | `resolveMinecraft` |
-| HMCL config | isolated instance `../.launcher/<uuid>/.hmcl`, otherwise `../.hmcl` | `resolveHmclHome` |
+| Minecraft instance directory | isolated instance `../.launcher/<uuid>/.minecraft`, otherwise `../.minecraft` | `resolveMinecraft` |
+| HMCL working directory | isolated instance `../.launcher/<uuid>/.hmcl`, otherwise `../.hmcl` | `resolveHmclHome` |
 | Shared libraries | `.flfhmcl/libraries/<group_artifact_version[-classifier]>.jar` | `librariesDir` |
 | HMCL jar | `.flfhmcl/hmcl/HMCL-<version>.jar`, or `.flfhmcl/hmcl/HMCL.jar` without a version | `hmclJar` |
 | Agent | `.flfhmcl/agents/FLFHMCL-<version>.jar`; without a version it falls back through the configured absolute path, the launcher directory, and `.flfhmcl/hmcl` | `agentJar` |
@@ -354,7 +354,7 @@ flowchart TD
 
 | Stage | Action | Progress |
 |---|---|---|
-| Prepare directories | create `profile/<uuid>`, the mods directory, and the game directory | 5 |
+| Prepare directories | create `profile/<uuid>`, the mods directory, and the Minecraft instance directory | 5 |
 | Java | reuse a working path, otherwise detect a local JRE, otherwise download Temurin 21 and extract it | 5 |
 | JavaFX | pick 17.0.13, 21.0.13, 22.0.2, 23.0.2, or 24.0.1 by JVM major version; fetch base, graphics, controls win jars | 10-25 |
 | Fabric | fetch the profile JSON, write it to disk, then fill in every library | 30-60 |
@@ -429,7 +429,7 @@ stateDiagram-v2
 
 ## 18. Launch plan: argument order and code flow
 
-`buildLaunchPlan(instance, quickStart)` produces `LaunchPlan{program, arguments, workingDir, provider}`. `program` is the instance `javaPath`, or the first entry of `detectJava()` when it is empty; `workingDir` is the parent of the game directory; before building it creates the game directory and the HMCL config directory and runs `repairHmclAcl`.
+`buildLaunchPlan(instance, quickStart)` produces `LaunchPlan{program, arguments, workingDir, provider}`. `program` is the instance `javaPath`, or the first entry of `detectJava()` when it is empty; `workingDir` is the parent of the Minecraft instance directory; before building it creates the Minecraft instance directory and the HMCL working directory (`.hmcl`) and runs `repairHmclAcl`. `--gameDir` receives the HMCL working directory, which is Fabric's GameDir, not the Minecraft instance directory.
 
 The protocol comes from a `LaunchProvider`; Knot sits before legacy in the list, `supports` picks the first match, and legacy always matches, so it is the fallback. The Knot threshold is `agentVersion >= 2.1.6` (the source comment still says 2.1.5, but the predicate wins).
 
@@ -439,7 +439,7 @@ Common arguments, in this exact order, are identical for every protocol:
 |---|---|---|
 | 1 | `-javaagent:<path>` | `agentJar(instance)` |
 | 2 | `-Dflf.libraries.dir=` | `.flfhmcl/libraries` |
-| 3 | `-Dflfhmcl.gameDir=` | game directory |
+| 3 | `-Dflfhmcl.gameDir=` | Minecraft instance directory (`.minecraft`) |
 | 4 | `-Dflf.instance=` | instance id |
 | 5 | `-Dflf.loader.version=` | Fabric Loader version |
 | 6 | `-Dflf.mclhr.manifest=` | `profile/<uuid>/mclhr.json` |
@@ -447,7 +447,7 @@ Common arguments, in this exact order, are identical for every protocol:
 | 8 | `-Dflf.version=` | Agent version |
 | 9 | `-Dflf.home=` | `.flfhmcl` root |
 | 10 | `-Dflfhmcl.update.managed=true` | constant, disables HMCL self-update |
-| 11 | `-Dhmcl.home=` | HMCL config directory |
+| 11 | `-Dhmcl.home=` | HMCL working directory (`.hmcl`) |
 | 12 | `-Dhmcl.dir=` | same value; HMCL reads both keys |
 
 Protocol tails:
@@ -455,14 +455,16 @@ Protocol tails:
 | Protocol | Argument | Meaning |
 |---|---|---|
 | knot | `-Dflf.knot.direct=true` | declare that Knot starts the runtime directly |
-| knot | `-Dfabric.addMods=` | the agent jar plus every jar in the mods directory sorted by file name, separated by semicolons |
+| knot | `-Dfabric.addMods=` | the agent jar plus every jar in `.flfhmcl/mods/<uuid>` sorted by file name, separated by semicolons |
 | knot | `-Dflf.hmcl.jar=` | HMCL jar handed to the agent |
 | knot | `-cp` and the agent jar | classpath holds the agent only |
 | knot | `net.fabricmc.loader.impl.launch.knot.KnotClient` | main class |
-| knot | `--gameDir` and the game directory | game directory |
+| knot | `--gameDir` and the HMCL working directory | `.hmcl`; Fabric's GameDir is the HMCL working directory, not `.minecraft` |
 | knot | `--hmclMainClass org.jackhuang.hmcl.Launcher` | HMCL main class |
 | legacy | `-jar` and the HMCL jar | older flow, the agent intercepts the entry point |
 | both | `--flf-instance=<id>` | appended only when generating a quick-start launcher |
+
+In knot mode Fabric treats `--gameDir` as its working directory, so the mods directory it scans itself is `mods/` under the HMCL working directory (`.hmcl/mods` when not isolated, `.launcher/<uuid>/.hmcl/mods` when isolated); FLF mods and the agent do not go through that scan and are still injected from `.flfhmcl/mods/<uuid>` through `-Dfabric.addMods`.
 
 Code flow:
 
@@ -490,7 +492,7 @@ sequenceDiagram
         MW->>MW: compare component versions in the background, toast only
     end
     MW->>LS: launchInstanceManaged
-    LS->>LS: create the game and HMCL config directories, run repairHmclAcl
+    LS->>LS: create the Minecraft instance and HMCL working directories, run repairHmclAcl
     LS->>LS: pick a LaunchProvider, Knot first and legacy as fallback
     LS->>LS: buildLaunchPlan orders the 12 common arguments and the protocol tail
     LS-->>MW: LaunchPlan
@@ -567,8 +569,8 @@ A `.flfhmclpack` is a zip with a manifest, not a compressed copy of the instance
 pack.zip
 ├─ flfhmclpack.json
 └─ payload/
-   ├─ minecraft/   selected files from the game directory
-   ├─ hmcl/        filtered HMCL config
+   ├─ minecraft/   selected files from the Minecraft instance directory
+   ├─ hmcl/        filtered HMCL working directory
    ├─ mods/        instance mods
    ├─ profile/     contents of the profile directory
    └─ runtime/     hmcl/HMCL-<version>.jar and agents/FLFHMCL-<version>.jar

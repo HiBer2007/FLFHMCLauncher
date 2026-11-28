@@ -1,0 +1,26 @@
+{
+  "current": "0.3.12",
+  "versions": [
+    {
+      "id": "0.3.12",
+      "label": "FLFHMCLauncher 0.3.12",
+      "status": "current",
+      "ref": "main",
+      "docsPath": "docs",
+      "locales": ["zh", "en"]
+    },
+    {
+      "id": "0.3.11",
+      "label": "FLFHMCLauncher 0.3.11",
+      "status": "archived",
+      "ref": "docs-0.3.11",
+      "docsPath": "docs",
+      "locales": ["zh", "en"]
+    }
+  ],
+  "convention": {
+    "currentRef": "main",
+    "archiveRefPattern": "docs-<version>",
+    "semantics": "Historical versions are Git refs, never copied over current pages."
+  }
+}

@@ -3,7 +3,7 @@ title: FLFHMCLauncher 用户指南
 description: 安装、实例、模组、快速启动器、整合包、日志与 CLI 的完整使用说明。
 audience: users
 package: flfhmlauncher
-version: 0.3.11
+version: 0.3.12
 toc: true
 ---
 
@@ -57,7 +57,7 @@ flowchart TD
 1. HMCL 版本；
 2. Fabric Loader 版本；
 3. Java；
-4. 游戏目录与隔离方式；
+4. Minecraft 实例目录与隔离方式；
 5. 是否安装 FLFHMCL Agent 与 FLF API。
 
 建议新实例使用独立目录，避免多个实例共用 `.minecraft` 导致模组冲突。
@@ -219,6 +219,7 @@ flowchart TD
 - **列表范围**：只列 `.jar` 与 `.jar.disabled`。勾选切换启用状态，实际是重命名加或去掉 `.disabled` 后缀，位置不变。
 - **导入**：**导入模组** 可多选，也可把多个 jar 拖进列表。导入是覆盖语义：同名文件会被覆盖，不生成备份。
 - **生效时机**：启动时把 Agent jar 与模组目录里所有 `.jar` 拼成 `-Dfabric.addMods` 传给 KnotClient，所以加删 jar 下次启动生效，不必重装实例。
+- **Fabric 自己的扫描**：`--gameDir`（HMCL 工作目录）下的 `mods/`，即 `.hmcl\mods`（隔离实例是 `.launcher\<uuid>\.hmcl\mods`），Fabric Loader 也会扫；FLF 模组不放那里，仍由上面的 `-Dfabric.addMods` 从 `.flfhmcl\mods\<uuid>` 注入。
 - **同名不同版本**：两个文件会一起进 `addMods`，典型表现是启动报重复模组或类冲突。先删或先禁用旧版本，再放新版本。
 - **同 mod id 不同文件名**（如 `foo-1.2.jar` 与 `foo-1.2-copy.jar`）：Fabric 在加载阶段报重复模组，HMCL 异常退出，摘要里能看到异常行。当前版本按文件名管理、不解析 jar 内 mod id，这类重复要靠日志确认。
 - **重复 Fabric Loader**：日志出现 `duplicate fabric loader` 属清单问题，**修复实例** 会按实例选定版本重建清单并清理重复项。
@@ -289,7 +290,7 @@ flowchart TD
 | `\.flfhmcl\logs\instance-<uuid>.log` | 实例控制台输出，实时追加 | 与 HMCL 日志对照 |
 | `\.flfhmcl\crash-report` | 启动器自身崩溃报告 | 崩溃处理器写入 |
 | `\.flfhmcl\tools\CrashTracker` | CrashTracker 工具 | 后台释放 |
-| `<启动器目录>\.launcher\<uuid>\.minecraft`、`\.hmcl` | 隔离实例的游戏目录与 HMCL 主目录 | `isolated=true` |
+| `<启动器目录>\.launcher\<uuid>\.minecraft`、`\.hmcl` | 隔离实例的 Minecraft 实例目录与 HMCL 工作目录 | `isolated=true` |
 | `<启动器目录>\.minecraft`、`\.hmcl` | 未隔离实例共用 | 多实例共用会互相影响 |
 
 隔离对照表：
@@ -300,6 +301,8 @@ flowchart TD
 | minecraft / hmclHome | `isolated=true` 时落 `.launcher\<uuid>`，否则用同级 `.minecraft` / `.hmcl` | 同左，由隔离开关决定 | 同左 |
 
 界面能直接切的是新建实例时的隔离开关；`mods`、`minecraft`、`hmclHome` 三层写在 `instances.json` 的同名字段（`mode` 取 `private` / `shared` / `group`，可带 `group`），改完重启生效。切换隔离方式前先备份存档与配置。
+
+两者不要混：`.hmcl` 是 HMCL 的工作目录（Fabric 的 GameDir），`.minecraft` 只是 HMCL 要启动的 Minecraft 实例目录，启动命令里的 `--gameDir` 指向前者。
 
 ```mermaid
 flowchart TD
@@ -313,14 +316,14 @@ flowchart TD
     FLFH --> RUNTIME["hmcl、agents、libraries、java、javafx、fabric：共享运行时"]
     FLFH --> LOGSDIR["logs 与 crash-report"]
     FLFH --> TOOLS["tools/CrashTracker"]
-    ISO --> MCISO[".minecraft：隔离实例的游戏目录"]
-    ISO --> HMCLISO[".hmcl：隔离实例的 HMCL 主目录"]
+    ISO --> MCISO[".minecraft：隔离实例的 Minecraft 实例目录"]
+    ISO --> HMCLISO[".hmcl：隔离实例的 HMCL 工作目录"]
 ```
 
 ## 十九、日志、崩溃与修复
 
 - **先看哪里**：启动器异常看 `.flfhmcl\logs\launcher.log` 与 `.flfhmcl\crash-report`；实例起不来先看 `.flfhmcl\logs\instance-<uuid>.log`，再看 HMCL 写进 `crash-report` 的最新报告。
-- **崩溃报告位置**：HMCL 报告写在 HMCL 主目录下的 `crash-report`：未隔离是 `.hmcl\crash-report`，隔离是 `.launcher\<uuid>\.hmcl\crash-report`。
+- **崩溃报告位置**：HMCL 报告写在 HMCL 工作目录下的 `crash-report`：未隔离是 `.hmcl\crash-report`，隔离是 `.launcher\<uuid>\.hmcl\crash-report`。
 - **异常退出对话框**：根因映射到几类已知问题——`Selected repository cannot be null` / `SambaException` / `config_loading_failure` 归为配置目录权限异常（ACL/Samba），此时应修 `.hmcl` 写权限而不要重建清单；`Configuration hasn't been loaded` 加 `AnimationUtils` 归为关闭动画初始化失败；`Configuration is already loaded` 归为设置重复初始化；`duplicate fabric loader` 归为重复 Loader；`Bootstrap failed` 归为 Fabric 引导失败；`UnsupportedClassVersion`、`OutOfMemoryError`、`NoClassDefFoundError` 分别对应 Java 版本、内存与类加载。除 ACL 一类外都提供 **修复实例**。
 - **校验做什么**：检查 Java 路径、Agent jar、HMCL jar 存在且 SHA-1 匹配、`mclhr.json` 存在且哈希匹配、清单库条目字段完整无重复、`net.fabricmc:fabric-loader` 版本与实例一致；任一项失败给出具体原因。
 - **修复做什么**：依次检查 Java、Agent、HMCL、Fabric Loader，补全缺失库，重建 profile 与 `mclhr` 清单，修完回启动页重试。

@@ -3,7 +3,7 @@ title: FLFHMCLauncher User Guide
 description: Installation, instances, mods, quick-start launchers, modpacks, logs, and CLI.
 audience: users
 package: flfhmlauncher
-version: 0.3.11
+version: 0.3.12
 toc: true
 ---
 
@@ -57,7 +57,7 @@ When creating an instance, choose:
 1. HMCL version;
 2. Fabric Loader version;
 3. Java;
-4. game directory and isolation mode;
+4. the Minecraft instance directory and isolation mode;
 5. whether to install the FLFHMCL Agent and FLF API.
 
 Use a separate directory for a new instance to avoid multiple instances sharing `.minecraft` and conflicting mods.
@@ -219,6 +219,7 @@ There are two update entries and they differ: **Settings → Check HMCL updates*
 - **What is listed**: only `.jar` and `.jar.disabled`. The checkbox toggles enablement by renaming the file to add or remove the `.disabled` suffix; the location never changes.
 - **Import**: **Import mods** supports multi-select, and multiple jars can be dropped on the list. Import overwrites: an existing file with the same name is replaced without a backup.
 - **When it takes effect**: at launch the launcher joins the Agent jar and every `.jar` in the mods directory into `-Dfabric.addMods` for KnotClient, so added or removed jars apply on the next launch without reinstalling.
+- **Fabric's own scan**: Fabric Loader also scans `mods/` under `--gameDir`, the HMCL working directory, which is `.hmcl\mods` (`.launcher\<uuid>\.hmcl\mods` for isolated instances). FLF mods do not live there; they are injected from `.flfhmcl\mods\<uuid>` through `-Dfabric.addMods` as described above.
 - **Same name, different versions**: keeping both puts both into `addMods`, which typically fails at startup with duplicate mod or class conflicts. Remove or disable the old version before adding the new one.
 - **Same mod id, different filenames** (for example `foo-1.2.jar` and `foo-1.2-copy.jar`): Fabric reports a duplicate mod during loading and HMCL exits abnormally, with the exception lines in the summary. This version manages mods by filename and does not parse mod ids, so confirm duplicates from the log.
 - **Duplicate Fabric Loader**: `duplicate fabric loader` in the log is a manifest problem, not a mod problem; **Repair instance** rebuilds the manifest for the selected version and removes duplicates.
@@ -289,7 +290,7 @@ The table uses the EXE directory as `<launcher directory>`, with `.flfhmcl` as i
 | `\.flfhmcl\logs\instance-<uuid>.log` | Instance console output, appended live | Cross-check with the HMCL log |
 | `\.flfhmcl\crash-report` | Launcher crash reports | Written by the crash handler |
 | `\.flfhmcl\tools\CrashTracker` | CrashTracker utility | Released in the background |
-| `<launcher directory>\.launcher\<uuid>\.minecraft`, `\.hmcl` | Game directory and HMCL home of an isolated instance | `isolated=true` |
+| `<launcher directory>\.launcher\<uuid>\.minecraft`, `\.hmcl` | Minecraft instance directory and HMCL working directory of an isolated instance | `isolated=true` |
 | `<launcher directory>\.minecraft`, `\.hmcl` | Shared by non-isolated instances | Sharing affects all of them |
 
 Isolation table:
@@ -300,6 +301,8 @@ Isolation table:
 | minecraft / hmclHome | `.launcher\<uuid>` when `isolated=true`, otherwise the sibling `.minecraft` / `.hmcl` | Same, driven by the isolation switch | Same |
 
 The only isolation control in the UI is the switch on the create page; the `mods`, `minecraft`, and `hmclHome` layers live in the same-named fields of `instances.json` (`mode` is `private`, `shared`, or `group`, optionally with `group`) and take effect after a restart. Back up saves and config before changing isolation.
+
+Do not conflate the two: `.hmcl` is the HMCL working directory (Fabric's GameDir), while `.minecraft` is only the Minecraft instance directory HMCL launches; `--gameDir` on the launch command line points at the former.
 
 ```mermaid
 flowchart TD
@@ -313,14 +316,14 @@ flowchart TD
     FLFH --> RUNTIME["hmcl, agents, libraries, java, javafx, fabric: shared runtime"]
     FLFH --> LOGSDIR["logs and crash-report"]
     FLFH --> TOOLS["tools/CrashTracker"]
-    ISO --> MCISO[".minecraft: game directory of the isolated instance"]
-    ISO --> HMCLISO[".hmcl: HMCL home of the isolated instance"]
+    ISO --> MCISO[".minecraft: Minecraft instance directory of the isolated instance"]
+    ISO --> HMCLISO[".hmcl: HMCL working directory of the isolated instance"]
 ```
 
 ## 19. Logs, crashes, repair
 
 - **Where to look first**: launcher problems in `.flfhmcl\logs\launcher.log` and `.flfhmcl\crash-report`; instance boot problems in `.flfhmcl\logs\instance-<uuid>.log`, then the newest report HMCL wrote under `crash-report`.
-- **Crash report location**: HMCL writes reports to `crash-report` inside HMCL home: `.hmcl\crash-report` when not isolated, `.launcher\<uuid>\.hmcl\crash-report` when isolated.
+- **Crash report location**: HMCL writes reports to `crash-report` inside its working directory: `.hmcl\crash-report` when not isolated, `.launcher\<uuid>\.hmcl\crash-report` when isolated.
 - **Abnormal-exit dialog**: root causes map to known classes. `Selected repository cannot be null` / `SambaException` / `config_loading_failure` mean an ACL/Samba permission problem on HMCL config, and the advice is to fix `.hmcl` permissions rather than rebuild the manifest. `Configuration hasn't been loaded` plus `AnimationUtils` means the shutdown animation failed to initialize; `Configuration is already loaded` means settings were initialized twice; `duplicate fabric loader` means duplicate loaders; `Bootstrap failed` means Fabric bootstrap failed; `UnsupportedClassVersion`, `OutOfMemoryError`, and `NoClassDefFoundError` map to Java version, memory, and class loading. All but the ACL case offer **Repair instance**.
 - **What validation checks**: Java path exists, Agent jar exists, HMCL jar exists with a matching SHA-1, `mclhr.json` exists with a matching hash, every manifest library has group/artifact/version with no duplicates, and `net.fabricmc:fabric-loader` matches the instance version. Any failure names the specific reason.
 - **What repair does**: checks Java, Agent, HMCL, and Fabric Loader in turn, fills in missing libraries, and rebuilds the profile and `mclhr` manifest; retry from the launch page afterwards.

@@ -181,13 +181,9 @@ public:
                    const Instance& instance, bool quickStart) const override {
         const fs::path gameDir = workspace.resolveMinecraft(instance);
         const fs::path hmclHome = workspace.resolveHmclHome(instance);
-        // Fabric 会无条件扫描 --gameDir/mods。HMCL 实例的 .minecraft/mods 属于
-        // Minecraft 游戏模组，不能作为 HMCL 自身的 Fabric mod 加载，否则 NeoForge/
-        // 游戏模组会被当作 HMCL 扩展而直接启动失败。给 HMCL 一个独立的空目录，
-        // 真实游戏目录仍通过 -Dflfhmcl.gameDir 传给 Agent。
-        const fs::path fabricGameDir = workspace.home() / "hmcl-runtime";
-        std::error_code ec;
-        fs::create_directories(fabricGameDir, ec);
+        // Fabric 的 GameDir 是“被托管的 Java 程序”的工作目录。HMCL 是被托管的
+        // “游戏”，所以这里必须是 HMCL 自己的工作目录（.hmcl），而不是 Minecraft
+        // 实例的 .minecraft。真实游戏目录通过 -Dflfhmcl.gameDir 单独传给 Agent。
         addCommon(plan, workspace, instance, gameDir, hmclHome);
         plan.arguments.insert(plan.arguments.end(), {
             "-Dflf.knot.direct=true",
@@ -198,7 +194,7 @@ public:
             "net.fabricmc.loader.impl.launch.knot.KnotClient",
         });
         plan.arguments.push_back("--gameDir");
-        plan.arguments.push_back(pathUtf8(fabricGameDir));
+        plan.arguments.push_back(pathUtf8(hmclHome));
         plan.arguments.push_back("--hmclMainClass");
         plan.arguments.push_back("org.jackhuang.hmcl.Launcher");
         if (quickStart) {

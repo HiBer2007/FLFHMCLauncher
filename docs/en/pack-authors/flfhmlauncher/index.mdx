@@ -3,7 +3,7 @@ title: FLFHMCLauncher Modpack Author Guide
 description: Exporting, importing, layer isolation, quick-start distribution, and testing for .flfhmclpack.
 audience: pack-authors
 package: flfhmlauncher
-version: 0.3.11
+version: 0.3.12
 toc: true
 ---
 
@@ -67,8 +67,8 @@ Back up before an overwrite install. Do not assume import replaces every file; f
 
 ```text
 <instance>/
-├─ .minecraft/       game and mods
-├─ .hmcl/            HMCL configuration
+├─ .minecraft/       Minecraft instance directory
+├─ .hmcl/            HMCL working directory (configuration)
 ├─ profile/          launch configuration
 ├─ logs/             logs
 └─ crash-report/     crash reports
@@ -171,7 +171,7 @@ Export first builds the manifest and the `payload/` tree in a temporary director
 | Path inside the archive | Content | Written when |
 |---|---|---|
 | `flfhmclpack.json` | Whole-pack manifest, the only entry point | Always |
-| `payload/minecraft/` | The instance `.minecraft` tree | Instance has a game directory |
+| `payload/minecraft/` | The instance `.minecraft` tree | Instance has a Minecraft instance directory |
 | `payload/hmcl/` | Filtered `.hmcl` tree | "Include .hmcl directory" is checked |
 | `payload/mods/` | Loose mod jars | That mod is embedded |
 | `payload/profile/` | `mclhr.json` and other launch configuration | Instance has a profile directory |
@@ -223,7 +223,7 @@ The manifest is two-space indented JSON. Missing fields are filled with defaults
 | state (window and user state) | on | Packed; tiny |
 | cache | off | Large; re-downloaded after import |
 | logs | off | May contain account names and local paths |
-| Include .minecraft/logs and crash-reports | off | Affects those two folders under the game directory; logs often carry account names and local paths |
+| Include .minecraft/logs and crash-reports | off | Affects those two folders under `.minecraft`; logs often carry account names and local paths |
 
 Always excluded: `libraries`, `java`, `cache`, `logs`, `bin` under `.flfhmcl`, plus the launcher itself; the launcher restores them from metadata. The quick-start launcher is not in the pack either and must be generated separately.
 
@@ -311,8 +311,8 @@ flowchart TD
 | Private mods | `.flfhmcl/mods/INSTANCE-UUID/` | Default location, also holds the FLF API jar |
 | Shared mods | `.flfhmcl/mods/general/` | Used when the layer mode is `shared` |
 | Shared directory | `.flfhmcl/shared/KIND/GROUP/` | Landing zone for group mode, group names are sanitized |
-| Isolated game directory | `.launcher/INSTANCE-UUID/.minecraft/` | Used when `isolated=true` |
-| Isolated launcher directory | `.launcher/INSTANCE-UUID/.hmcl/` | Same condition |
+| Isolated Minecraft instance directory | `.launcher/INSTANCE-UUID/.minecraft/` | Used when `isolated=true` |
+| Isolated HMCL working directory | `.launcher/INSTANCE-UUID/.hmcl/` | Same condition |
 | Runtime | `bin`, `hmcl`, `agents`, `fabric`, `java`, `javafx`, `libraries` under `.flfhmcl` | Shared by all instances |
 | Launcher log | `.flfhmcl/logs/launcher.log` | First stop when debugging |
 
@@ -344,7 +344,7 @@ The pack carries only two runtime jars, HMCL and Agent, both shared across insta
 
 How FLF API is chosen: when the instance `flfApiVersion` is empty, the launcher picks the first release whose HMCL versions include the instance HMCL version and whose `>=` Agent requirements are satisfied; `none` means skip and also removes other `flf-api-` jars from the mods directory. Installing a newer version removes other `flf-api-` jars and legacy-named ones too, avoiding duplicate classes and double registration. Never shade these jars into business mods.
 
-There are two launch protocols; the only threshold worth remembering is `2.1.6`. With Agent `2.1.6` or newer the launcher starts Fabric Knot directly and puts the Agent plus the instance mod jars into `fabric.addMods`; below that it falls back to `-jar` and lets the Agent intercept the entry point. Both pass the instance id, game directory, loader version, manifest path, profile directory, and workspace root.
+There are two launch protocols; the only threshold worth remembering is `2.1.6`. With Agent `2.1.6` or newer the launcher starts Fabric Knot directly and puts the Agent plus the instance mod jars into `fabric.addMods`; below that it falls back to `-jar` and lets the Agent intercept the entry point. Both pass the instance id, the Minecraft instance directory (`-Dflfhmcl.gameDir`), loader version, manifest path, profile directory, and workspace root.
 
 Validation before launch is on by default and checks Java, the Agent, the HMCL jar with its SHA-1, `mclhr.json` with its SHA-256, library entries, and the Fabric Loader version. Messages include `Java path does not exist`, `mclhr manifest hash mismatch`, `mclhr manifest contains a duplicate library: X`, `mclhr manifest failed to parse: X`. Shipping those hashes is safer, but hand-editing instance metadata blocks the launch immediately.
 

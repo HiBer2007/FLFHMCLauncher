@@ -3,7 +3,7 @@ title: FLFHMCLauncher 开发者文档
 description: C++/Qt 架构、bootstrap、工作区、安装器、启动计划、快速启动器、整合包与构建发布。
 audience: developers
 package: flfhmlauncher
-version: 0.3.11
+version: 0.3.12
 toc: true
 ---
 
@@ -99,7 +99,7 @@ src/
 - `-Dfabric.addMods`；
 - HMCL jar；
 - Knot 主类；
-- 游戏目录/实例参数。
+- `--gameDir`（HMCL 工作目录）与实例参数。
 
 Knot provider 用于新版 FLFHMCL；legacy provider 用于旧版 `-jar` 启动。参数顺序不能随意调整。
 
@@ -313,8 +313,8 @@ flowchart TD
 | 实例配置目录 | `.flfhmcl/profile/<uuid>` | `profileDir` |
 | mclhr 清单 | `.flfhmcl/profile/<uuid>/mclhr.json` | `manifestPath` |
 | 模组目录 | shared 模式 `.flfhmcl/mods/general`，否则 `.flfhmcl/mods/<uuid>` | `resolveMods` |
-| 游戏目录 | 隔离实例 `../.launcher/<uuid>/.minecraft`，否则 `../.minecraft` | `resolveMinecraft` |
-| HMCL 配置 | 隔离实例 `../.launcher/<uuid>/.hmcl`，否则 `../.hmcl` | `resolveHmclHome` |
+| Minecraft 实例目录 | 隔离实例 `../.launcher/<uuid>/.minecraft`，否则 `../.minecraft` | `resolveMinecraft` |
+| HMCL 工作目录 | 隔离实例 `../.launcher/<uuid>/.hmcl`，否则 `../.hmcl` | `resolveHmclHome` |
 | 共享库 | `.flfhmcl/libraries/<group_artifact_version[-classifier]>.jar` | `librariesDir` |
 | HMCL jar | `.flfhmcl/hmcl/HMCL-<版本>.jar`，无版本时 `.flfhmcl/hmcl/HMCL.jar` | `hmclJar` |
 | Agent | `.flfhmcl/agents/FLFHMCL-<版本>.jar`；无版本时按配置绝对路径、启动器目录、`.flfhmcl/hmcl` 依次回退 | `agentJar` |
@@ -353,7 +353,7 @@ flowchart TD
 
 | 阶段 | 动作 | 进度 |
 |---|---|---|
-| 准备目录 | 建 `profile/<uuid>`、模组目录、游戏目录 | 5 |
+| 准备目录 | 建 `profile/<uuid>`、模组目录、Minecraft 实例目录 | 5 |
 | Java | 已有路径可用就复用，否则探测本机，再不行下载 Temurin 21 并解压 | 5 |
 | JavaFX | 按 JVM 主版本选 17.0.13、21.0.13、22.0.2、23.0.2、24.0.1，拉 base/graphics/controls 的 win 包 | 10-25 |
 | Fabric | 取 profile JSON 落盘，再逐个补齐库 | 30-60 |
@@ -428,7 +428,7 @@ stateDiagram-v2
 
 ## 十八、启动计划：参数顺序与代码流程
 
-`buildLaunchPlan(instance, quickStart)` 产出 `LaunchPlan{program, arguments, workingDir, provider}`。`program` 取实例的 `javaPath`，为空就用 `detectJava()` 的第一个；`workingDir` 是游戏目录的父目录；生成前先建好游戏目录与 HMCL 配置目录，并跑一次 `repairHmclAcl`。
+`buildLaunchPlan(instance, quickStart)` 产出 `LaunchPlan{program, arguments, workingDir, provider}`。`program` 取实例的 `javaPath`，为空就用 `detectJava()` 的第一个；`workingDir` 是 Minecraft 实例目录的父目录；生成前先建好 Minecraft 实例目录与 HMCL 工作目录（`.hmcl`），并跑一次 `repairHmclAcl`。`--gameDir` 传的是 HMCL 的工作目录，也就是 Fabric 的 GameDir，不是 Minecraft 实例目录。
 
 启动协议由 `LaunchProvider` 决定，列表里 Knot 在前、legacy 在后，`supports` 取第一个命中，legacy 永远命中所以兜底。Knot 的门槛是 `agentVersion >= 2.1.6`（源码注释写的 2.1.5 已过时，以判定语句为准）。
 
@@ -438,7 +438,7 @@ stateDiagram-v2
 |---|---|---|
 | 1 | `-javaagent:<路径>` | `agentJar(instance)` |
 | 2 | `-Dflf.libraries.dir=` | `.flfhmcl/libraries` |
-| 3 | `-Dflfhmcl.gameDir=` | 游戏目录 |
+| 3 | `-Dflfhmcl.gameDir=` | Minecraft 实例目录（`.minecraft`） |
 | 4 | `-Dflf.instance=` | 实例 id |
 | 5 | `-Dflf.loader.version=` | Fabric Loader 版本 |
 | 6 | `-Dflf.mclhr.manifest=` | `profile/<uuid>/mclhr.json` |
@@ -446,7 +446,7 @@ stateDiagram-v2
 | 8 | `-Dflf.version=` | Agent 版本 |
 | 9 | `-Dflf.home=` | `.flfhmcl` 根 |
 | 10 | `-Dflfhmcl.update.managed=true` | 常量，关闭 HMCL 自更新 |
-| 11 | `-Dhmcl.home=` | HMCL 配置目录 |
+| 11 | `-Dhmcl.home=` | HMCL 工作目录（`.hmcl`） |
 | 12 | `-Dhmcl.dir=` | 同上，HMCL 两个键都会读 |
 
 协议尾部：
@@ -454,14 +454,16 @@ stateDiagram-v2
 | 协议 | 参数 | 说明 |
 |---|---|---|
 | knot | `-Dflf.knot.direct=true` | 声明由 Knot 直接拉起 |
-| knot | `-Dfabric.addMods=` | agent jar 加上模组目录里按文件名排序的全部 jar，分号分隔 |
+| knot | `-Dfabric.addMods=` | agent jar 加上 `.flfhmcl/mods/<uuid>` 里按文件名排序的全部 jar，分号分隔 |
 | knot | `-Dflf.hmcl.jar=` | HMCL jar 交给 agent 加载 |
 | knot | `-cp` 与 agent jar | classpath 只放 agent |
 | knot | `net.fabricmc.loader.impl.launch.knot.KnotClient` | 主类 |
-| knot | `--gameDir` 与游戏目录 | 游戏目录 |
+| knot | `--gameDir` 与 HMCL 工作目录 | `.hmcl`；Fabric 的 GameDir 就是 HMCL 工作目录，不是 `.minecraft` |
 | knot | `--hmclMainClass org.jackhuang.hmcl.Launcher` | HMCL 主类 |
 | legacy | `-jar` 与 HMCL jar | 旧版由 Agent 拦截入口 |
 | 两者 | `--flf-instance=<id>` | 只在生成快速启动器时追加 |
+
+knot 模式下 Fabric 把 `--gameDir` 当工作目录，所以它自己扫描的模组目录是 HMCL 工作目录下的 `mods/`（未隔离是 `.hmcl/mods`，隔离是 `.launcher/<uuid>/.hmcl/mods`）；FLF 模组与 Agent 不走这条扫描，仍由 `-Dfabric.addMods` 从 `.flfhmcl/mods/<uuid>` 注入。
 
 代码流程：
 
@@ -489,7 +491,7 @@ sequenceDiagram
         MW->>MW: 后台比对组件更新，只弹提示
     end
     MW->>LS: launchInstanceManaged
-    LS->>LS: 建游戏目录与 HMCL 配置目录，跑 repairHmclAcl
+    LS->>LS: 建 Minecraft 实例目录与 HMCL 工作目录，跑 repairHmclAcl
     LS->>LS: 选 LaunchProvider，Knot 优先、legacy 兜底
     LS->>LS: buildLaunchPlan 排好公共 12 项参数与协议尾部
     LS-->>MW: LaunchPlan
@@ -566,8 +568,8 @@ sequenceDiagram
 pack.zip
 ├─ flfhmclpack.json
 └─ payload/
-   ├─ minecraft/   游戏目录里选中的文件
-   ├─ hmcl/        过滤后的 HMCL 配置
+   ├─ minecraft/   Minecraft 实例目录里选中的文件
+   ├─ hmcl/        过滤后的 HMCL 工作目录
    ├─ mods/        实例模组
    ├─ profile/     profile 目录内容
    └─ runtime/     hmcl/HMCL-<版本>.jar 与 agents/FLFHMCL-<版本>.jar
